@@ -176,17 +176,34 @@ async function whereTyping() {
   return { x: answer.x - bounds.x, y: answer.y - bounds.y, w: answer.w, h: answer.h, exact: answer.exact === true }
 }
 
-// Push-to-talk (macOS): the native/listen helper hears you only between "start" and "stop". It starts the
-// first time you ask Momo to listen, which is when macOS asks for the microphone and speech recognition.
+// Momo's ears (macOS): the native/listen helper turns speech into text, on this Mac when it can.
+// With "Listen for Momo" on, everything is ignored until you say his name; what follows, up to a pause,
+// is your request. Push-to-talk (⌥M or his menu) skips the name. While Momo talks, his ears ignore it.
 const LISTEN = path.join(__dirname, 'native', 'listen')
 const canTalk = process.platform === 'darwin' && fs.existsSync(LISTEN)
-let listen = null
-let isListening = false
+let ears = null
+let earsOn = false
+let listenForName = false
+let isSpeaking = false
+// One request being heard: { request, since, lastChange, pushToTalk } or null.
+let turn = null
 
-function startListen() {
-  listen = spawn(LISTEN, [], { stdio: ['pipe', 'pipe', 'ignore'] })
+// "Momo", and how speech recognition tends to spell it.
+const NAME = /\b(?:momo|mo mo|moe moe|mo-mo|momoe|mohmo)\b/gi
+
+/** The words after the last "Momo" in what was heard, or null when his name was not said. */
+function afterName(text) {
+  const matches = [...text.matchAll(NAME)]
+  const last = matches[matches.length - 1]
+  if (!last) return null
+  return text.slice(last.index + last[0].length).replace(/^[\s,.!?:;-]+/, '').trim()
+}
+
+function startEars() {
+  if (ears) return
+  ears = spawn(LISTEN, [], { stdio: ['pipe', 'pipe', 'ignore'] })
   let buffer = ''
-  listen.stdout.on('data', chunk => {
+  ears.stdout.on('data', chunk => {
     buffer += chunk
     for (let end = buffer.indexOf('\n'); end >= 0; end = buffer.indexOf('\n')) {
       const line = buffer.slice(0, end)
@@ -196,26 +213,97 @@ function startListen() {
         event = JSON.parse(line)
       } catch {}
       if (!event) continue
-      if (event.listening) isListening = true
-      if (event.final !== undefined || event.error) isListening = false
-      // What you said goes to Claude's prompt box, as if you had typed it in Momo's menu.
-      if (typeof event.final === 'string' && event.final.trim()) inbox.push({ type: 'ask', text: event.final.trim().slice(0, 400) })
-      win?.webContents.send('hearing', event)
+      if (typeof event.listening === 'boolean') earsOn = event.listening
+      if (typeof event.heard === 'string') onHeard(event.heard)
+      if (event.error) {
+        turn = null
+        win?.webContents.send('hearing', { error: event.error })
+      }
     }
   })
-  listen.on('exit', () => {
-    listen = null
-    isListening = false
+  ears.on('exit', () => {
+    ears = null
+    earsOn = false
   })
 }
+
+function ear(command) {
+  startEars()
+  ears?.stdin.write(`${command}\n`)
+}
+
+function onHeard(text) {
+  if (isSpeaking) return
+  const now = Date.now()
+  if (turn) {
+    const request = turn.pushToTalk ? text.trim() : (afterName(text) ?? turn.request)
+    if (request !== turn.request) {
+      turn.request = request
+      turn.lastChange = now
+      win?.webContents.send('hearing', { partial: request })
+    }
+    return
+  }
+  if (!listenForName) return
+  const request = afterName(text)
+  if (request === null) return
+  turn = { request, since: now, lastChange: now, pushToTalk: false }
+  win?.webContents.send('hearing', { wake: true, partial: request })
+}
+
+/** The request is over: after a pause, or 20 seconds at most. */
+function finishTurn() {
+  const request = turn?.request.trim() ?? ''
+  turn = null
+  ear('reset')
+  if (!listenForName && earsOn) ear('stop')
+  win?.webContents.send('hearing', { request })
+}
+
+setInterval(() => {
+  if (!turn) return
+  const quiet = Date.now() - turn.lastChange
+  if (quiet > (turn.request ? 1600 : 6000) || Date.now() - turn.since > 20000) finishTurn()
+}, 250)
 
 function toggleListening() {
   if (!canTalk) return win?.webContents.send('hearing', { error: 'unavailable' })
-  if (!listen) startListen()
-  listen.stdin.write(isListening ? 'stop\n' : 'start\n')
+  if (turn) return finishTurn()
+  ear(earsOn ? 'reset' : 'start')
+  const now = Date.now()
+  turn = { request: '', since: now, lastChange: now, pushToTalk: true }
+  win?.webContents.send('hearing', { wake: true, partial: '' })
 }
 
 ipcMain.on('talk', toggleListening)
+ipcMain.on('listen-for-name', (_event, on) => {
+  listenForName = canTalk && on === true
+  if (listenForName) ear('start')
+  else if (earsOn && !turn) ear('stop')
+})
+// While Momo talks his ears ignore it; afterwards they forget what they heard (his own voice).
+ipcMain.on('speaking', (_event, speaking) => {
+  isSpeaking = speaking === true
+  if (!isSpeaking && earsOn) setTimeout(() => ear('reset'), 250)
+})
+ipcMain.on('ask', (_event, text) => inbox.push({ type: 'ask', text: String(text).slice(0, 400) }))
+
+// Momo's voice (macOS): the system voice says the line a little slowly into a sound file; Momo Desktop
+// plays it back faster, which makes it higher and cuter but still clear. Elsewhere the page speaks.
+const VOICES = { cute: { voice: 'Samantha', rate: 150 }, tiny: { voice: 'Junior', rate: 145 }, soft: { voice: 'Samantha', rate: 165 } }
+ipcMain.handle('voice', (_event, { text, preset }) => {
+  if (process.platform !== 'darwin') return null
+  const { voice, rate } = VOICES[preset] ?? VOICES.cute
+  const file = path.join(os.tmpdir(), `momo-${crypto.randomBytes(6).toString('hex')}.wav`)
+  return new Promise(resolve =>
+    execFile('say', ['-v', voice, '-r', `${rate}`, '--file-format=WAVE', '--data-format=LEI16@22050', '-o', file, String(text).slice(0, 300)], error => {
+      if (error) return resolve(null)
+      const bytes = fs.readFileSync(file)
+      fs.rmSync(file, { force: true })
+      resolve(new Uint8Array(bytes))
+    }),
+  )
+})
 
 // Momo's click menu: a small glass window beside him.
 const MENU_WIDTH = 260
@@ -257,7 +345,7 @@ ipcMain.on('open-menu', (_event, { x, y, w, h, ...settings }) => {
   menu.setPosition(Math.round(menuX), Math.round(menuY))
   menu.show()
   menu.focus()
-  menu.webContents.send('open', { ...settings, canTalk, isListening })
+  menu.webContents.send('open', { ...settings, canTalk, isListening: turn !== null })
 })
 
 ipcMain.on('menu-action', (_event, { action, text }) => {
@@ -303,6 +391,14 @@ function createTray() {
       { label: 'Pet Momo', click: () => win?.webContents.send('pet') },
       { label: 'Call Momo here', click: () => win?.webContents.send('summon') },
       { label: 'Show all his moods', click: () => win?.webContents.send('tour') },
+      {
+        label: 'Voice',
+        submenu: [
+          ['cute', 'Cute'],
+          ['tiny', 'Tiny'],
+          ['soft', 'Soft'],
+        ].map(([preset, label]) => ({ label, click: () => win?.webContents.send('voice-preset', preset) })),
+      },
       ...(caret
         ? [{ label: 'Let Momo see where I type…', click: () => askCaret('ask') }]
         : []),
@@ -438,5 +534,5 @@ app.on('window-all-closed', () => app.quit())
 app.on('will-quit', () => {
   globalShortcut.unregisterAll()
   caret?.kill()
-  listen?.kill()
+  ears?.kill()
 })

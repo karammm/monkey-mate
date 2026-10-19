@@ -24,9 +24,9 @@ const PLANS = {
   sleepy: null,
 }
 
-// Momo's voice: your computer's own speech voices, pitched up to sound like him. On by default;
-// "Say every step" narrates Claude's work live. Both are switches in his menu and are remembered.
-const settings = { voice: true, narrate: true }
+// Momo talks only when you talk to him: say "Momo" (or use push-to-talk) and he answers out loud.
+// Everything else stays in his bubble. Settings are switches in his menus and are remembered.
+const settings = { voice: true, listenForName: true, preset: 'cute' }
 try {
   Object.assign(settings, JSON.parse(localStorage.getItem('settings') ?? '{}'))
 } catch {}
@@ -36,50 +36,69 @@ const saveSettings = () => {
   } catch {}
 }
 
-const VOICES = ['Samantha', 'Karen', 'Moira', 'Tessa', 'Microsoft Aria', 'Microsoft Zira', 'Microsoft Jenny']
-let voice = null
-const pickVoice = () => {
-  const voices = speechSynthesis.getVoices()
-  voice =
-    VOICES.map(name => voices.find(candidate => candidate.name.startsWith(name))).find(Boolean) ??
-    voices.find(candidate => candidate.lang.startsWith('en')) ??
-    null
-}
-speechSynthesis.addEventListener('voiceschanged', pickVoice)
-pickVoice()
+// Played back faster than it was spoken: higher and cuter, still clear.
+const SPEEDS = { cute: 1.32, tiny: 1.42, soft: 1.15 }
+let audio = null
+let playing = null
 
-let speaking = null // the kind of line being spoken right now
-/**
- * Says a line out loud. Kinds: 'warning' (always, interrupts), 'say' and 'fun' (queued), 'narration'
- * (only the latest step, never while you type, and never over something more important).
- */
-function speak(text, kind = 'say') {
+/** Says a reply out loud in Momo's voice, his mouth moving with it. */
+async function speak(text) {
   if (!settings.voice) return
-  if (kind === 'narration' && (!settings.narrate || state.isTyping)) return
-  if (kind === 'fun' && state.isTyping) return
   const words = text
     // An emoji between words becomes a short pause: "Done ✅ Changed app.ts" → "Done. Changed app.ts".
     .replace(/\s*(?:\p{Extended_Pictographic}|[✓✔])[\uFE0F\u200D]*\s*(?=\p{L})/gu, '. ')
-    .replace(/\p{Extended_Pictographic}|\uFE0F|\u200D|[✓✔]/gu, '')
+    .replace(/\p{Extended_Pictographic}|\uFE0F|\u200D|[✓✔“”]/gu, '')
     .replace(/\s+/g, ' ')
     .trim()
   if (!words) return
-  if (kind === 'narration' && speaking && speaking !== 'narration') return
-  if (kind === 'warning' || kind === 'narration' || speaking === 'narration') speechSynthesis.cancel()
-  const line = new SpeechSynthesisUtterance(words)
-  if (voice) line.voice = voice
-  line.pitch = 1.75
-  line.rate = 1.12
-  line.volume = 0.9
-  line.onstart = () => {
-    speaking = kind
-    momo.talking = true
+  stopSpeaking()
+  window.monkeyMate.speaking(true)
+  const bytes = await window.monkeyMate.voice({ text: words, preset: settings.preset })
+  if (!bytes) return speakWithPage(words)
+  audio ??= new AudioContext()
+  const buffer = await audio.decodeAudioData(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength))
+  const source = audio.createBufferSource()
+  source.buffer = buffer
+  source.playbackRate.value = SPEEDS[settings.preset] ?? SPEEDS.cute
+  const loudness = audio.createAnalyser()
+  loudness.fftSize = 512
+  source.connect(loudness).connect(audio.destination)
+  playing = { source, loudness, samples: new Float32Array(loudness.fftSize) }
+  source.onended = () => {
+    if (playing?.source === source) playing = null
+    momo.talking = false
+    window.monkeyMate.speaking(false)
   }
+  source.start()
+}
+
+/** Without a recorded voice (Windows, Linux) the page speaks, pitched up. */
+function speakWithPage(words) {
+  const line = new SpeechSynthesisUtterance(words)
+  line.pitch = 1.9
+  line.rate = 1.15
+  line.onstart = () => (momo.talking = true)
   line.onend = line.onerror = () => {
-    speaking = null
-    momo.talking = speechSynthesis.speaking
+    momo.talking = false
+    window.monkeyMate.speaking(false)
   }
   speechSynthesis.speak(line)
+}
+
+function stopSpeaking() {
+  playing?.source.stop()
+  playing = null
+  speechSynthesis.cancel()
+  momo.talking = false
+}
+
+/** How loud Momo's voice is right now, 0..1, to open his mouth with it. */
+function voiceLevel() {
+  if (!playing) return momo.talking ? (Math.floor(Date.now() / 130) % 2) * 0.5 : 0
+  playing.loudness.getFloatTimeDomainData(playing.samples)
+  let sum = 0
+  for (const sample of playing.samples) sum += sample * sample
+  return Math.min(1, Math.sqrt(sum / playing.samples.length) * 6)
 }
 
 const canvas = document.getElementById('screen')
@@ -420,7 +439,7 @@ function drawMomo(mood) {
       ? frames[Math.min(frames.length - 1, Math.floor(((Date.now() - step.start) / (step.until - step.start)) * frames.length))]
       : frames[Math.floor(Date.now() / (hands === 'clap' ? 160 : 260)) % frames.length]
     body = sprites[`${mood}-g-${frame}`] ?? body
-  } else if (momo.talking && pose === 'sit' && Math.floor(Date.now() / 130) % 2 === 0) {
+  } else if (pose === 'sit' && voiceLevel() > 0.18) {
     body = sprites[`${mood}-talk`] ?? body
   }
   const t = performance.now() / 1000
@@ -484,7 +503,7 @@ function react(emotion, text, bubbleMs = 7000) {
   state.lastNews = Date.now()
   if (text) {
     state.bubble = { text, until: Date.now() + bubbleMs }
-    speak(text, emotion === 'worried' || emotion === 'angry' ? 'warning' : 'say')
+    if (/^(Done|Not done|Something did not)/.test(text)) state.lastSummary = text
   }
   // Covering his eyes is one quiet move, so it happens even while you are busy; waving and clapping wait.
   if (emotion === 'worried') return coverEyes(2000, ['peek', 1200], ['lower', 240])
@@ -554,7 +573,7 @@ function openMenu() {
   }
   const w = width()
   const h = height()
-  window.monkeyMate.openMenu({ x: momo.x, y: momo.y, w, h, isPlaying: tune !== null, voice: settings.voice, narrate: settings.narrate })
+  window.monkeyMate.openMenu({ x: momo.x, y: momo.y, w, h, isPlaying: tune !== null, voice: settings.voice, listenForName: settings.listenForName })
 }
 
 /** A mouse resting on Momo tickles him; rubbing back and forth fast teases him. */
@@ -581,9 +600,14 @@ function feelTheMouse() {
   }
 }
 
-function say1(text, ms = 1800, kind = 'fun') {
+function say1(text, ms = 1800) {
   state.bubble = { text, until: Date.now() + ms }
-  speak(text, kind)
+}
+
+/** A reply to you: in his bubble and out loud. */
+function reply(text, ms = 4000) {
+  say1(text, ms)
+  speak(text)
 }
 
 // The little tune: a cheerful loop made on the spot with Web Audio, soft enough not to startle.
@@ -649,24 +673,17 @@ const JOKES = [
   'Debugging: being the detective in a crime movie where you are also the criminal 🕵️',
 ]
 
-// Push-to-talk: while Momo listens he holds still, ears up, and shows what he hears.
-let lastHeard = 0
+// Hearing you: after "Momo" (or push-to-talk) he holds still, ears up, showing what he hears; when you
+// pause he answers.
 window.monkeyMate.onHearing(event => {
-  if (event.listening) {
-    speechSynthesis.cancel()
-    state.listening = { text: '' }
-    lastHeard = Date.now()
+  if (event.wake) {
+    stopSpeaking()
+    state.listening = { text: event.partial ?? '' }
   } else if (typeof event.partial === 'string') {
     state.listening = { text: event.partial }
-    lastHeard = Date.now()
-  } else if (typeof event.final === 'string') {
+  } else if (typeof event.request === 'string') {
     state.listening = null
-    if (event.final.trim()) {
-      say1(`Got it! “${event.final.trim()}” is in Claude’s prompt box ✨`, 4500, 'say')
-      gesture(['wave', 1000])
-    } else {
-      say1('I did not catch that 🙉', 2500, 'say')
-    }
+    answer(event.request)
   } else if (event.error) {
     state.listening = null
     const why = {
@@ -674,19 +691,63 @@ window.monkeyMate.onHearing(event => {
       microphone: 'Please allow the microphone for Momo in System Settings → Privacy 🎤',
       unavailable: 'Talking to me works on a Mac for now 🎤',
     }
-    say1(why[event.error] ?? 'I cannot hear right now 🙉', 5000, 'say')
+    say1(why[event.error] ?? 'I cannot hear right now 🙉', 5000)
   }
 })
 
-// He stops listening by himself after you pause (2 s) or after 20 s.
-setInterval(() => {
-  if (!state.listening) return
-  const pause = state.listening.text ? 2000 : 6000
-  if (Date.now() - lastHeard > pause || Date.now() - lastHeard > 20000) {
-    lastHeard = Date.now()
-    window.monkeyMate.talk()
+/** What Momo does when you talk to him. Anything he cannot do himself goes to Claude's prompt box. */
+function answer(request) {
+  const said = request.toLowerCase()
+  const is = pattern => pattern.test(said)
+  if (!said) return reply('Yes? 🐒', 2500)
+  if (is(/\b(stop|quiet|shush|shut up|enough)\b/)) {
+    stopDance()
+    return reply('Okay! 🤐', 1800)
   }
-}, 250)
+  if (is(/\b(what('s| is)? (happening|going on|up)|what is claude doing|status|are you busy)\b/)) {
+    return reply(state.work ? `Claude is busy. ${state.work.text}.` : 'Claude is waiting for you. All calm here 🙂')
+  }
+  if (is(/\b(what (changed|did (you|claude) (do|change))|summary|recap|last turn)\b/)) {
+    return reply(state.lastSummary ?? 'Nothing changed yet. I am watching! 👀', 5000)
+  }
+  if (is(/\bjoke\b/)) {
+    gesture(['clap', 1200])
+    return reply(JOKES[Math.floor(Math.random() * JOKES.length)], 7000)
+  }
+  if (is(/\b(play|pause|resume)\b.*\b(my|spotify|apple) music\b|\bspotify\b/)) return window.monkeyMate.musicApp?.()
+  if (is(/\b(play|sing)\b.*\b(music|song|tune)\b|\bsing\b/)) {
+    if (!tune) playTune()
+    return reply('🎶 La la la!', 2500)
+  }
+  if (is(/\bdance\b/)) {
+    dance(8000)
+    return reply('Watch my moves! 💃', 2500)
+  }
+  if (is(/\b(sleep|nap|good ?night)\b/)) {
+    stopDance()
+    state.napUntil = Date.now() + 10 * 60 * 1000
+    return reply('Good night! 😴', 2000)
+  }
+  if (is(/^(hi|hello|hey|yo)\b/) && said.split(' ').length <= 3) return reply('Hi! 👋 Happy to see you!', 2500)
+  if (is(/\bhow are you\b/)) return reply(`I feel ${emotion()}! ${EMOJI[emotion()] ?? ''}`, 2500)
+  if (is(/\b(thank|thanks|good (job|boy|monkey))\b/)) {
+    pet()
+    return reply('Aww, you are welcome! 💗', 2500)
+  }
+  // Anything else is a job for Claude: it goes in the prompt box, and you send it.
+  window.monkeyMate.ask(request)
+  gesture(['wave', 1000])
+  reply('Okay! I put it in Claude’s prompt box. Press Enter to send it ✨', 4500)
+}
+
+const EMOJI = { happy: '😄', proud: '🤩', calm: '🙂', curious: '🤔', worried: '😟', angry: '😠', sleepy: '😴' }
+
+window.monkeyMate.onVoicePreset(preset => {
+  settings.preset = preset
+  saveSettings()
+  reply('Do you like this voice? 🐒', 2500)
+})
+window.monkeyMate.listenForName(settings.listenForName)
 
 window.monkeyMate.onAction(({ action, text }) => {
   if (action === 'tune') {
@@ -717,12 +778,16 @@ window.monkeyMate.onAction(({ action, text }) => {
   } else if (action === 'voice') {
     settings.voice = !settings.voice
     saveSettings()
-    if (!settings.voice) speechSynthesis.cancel()
-    say1(settings.voice ? 'Yay, I can talk again! 🗣️' : 'Okay, I will be quiet 🤐', 2200, 'say')
-  } else if (action === 'narrate') {
-    settings.narrate = !settings.narrate
+    if (settings.voice) reply('Yay, I can talk again! 🗣️', 2200)
+    else {
+      stopSpeaking()
+      say1('Okay, I will answer in my bubble only 🤐', 2500)
+    }
+  } else if (action === 'listen-for-name') {
+    settings.listenForName = !settings.listenForName
     saveSettings()
-    say1(settings.narrate ? 'I will tell you every step 🗣️' : 'I will only tell you the big stuff 👍', 2200, 'say')
+    window.monkeyMate.listenForName(settings.listenForName)
+    say1(settings.listenForName ? 'Say “Momo” any time and I will listen 👂' : 'Okay, my ears are off 🙉', 3000)
   } else if (action === 'say' && text) {
     say1(text, 3500)
   }
@@ -743,7 +808,6 @@ window.monkeyMate.onTyping(({ typing, caret }) => {
     if (Date.now() - lastNotPeeking > 60_000 && (!state.bubble || Date.now() > state.bubble.until)) {
       lastNotPeeking = Date.now()
       state.bubble = { text: '🙈 Not peeking!', until: Date.now() + 2200 }
-      speak('Not peeking!', 'say')
     }
   }
 })
@@ -768,7 +832,6 @@ window.monkeyMate.onUserBusy(busy => {
 })
 window.monkeyMate.onActivity(({ working, text }) => {
   const step = working ? text || 'Working' : null
-  if (step && step !== state.work?.text) speak(step, 'narration')
   state.work = step ? { text: step } : null
   state.lastNews = Date.now()
   if (working && momo.mode === 'idle' && !state.isUserBusy) momo.rest = 0

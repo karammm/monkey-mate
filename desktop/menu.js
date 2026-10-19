@@ -12,12 +12,13 @@ document.getElementById('ask').addEventListener('submit', event => {
   field.value = ''
 })
 
-window.menu.onOpen(({ isPlaying, voice, narrate, canTalk, isListening }) => {
+window.menu.onOpen(({ isPlaying, voice, listenForName, canTalk, isListening }) => {
   document.getElementById('tune-label').textContent = isPlaying ? 'Stop the tune' : 'Play a tune'
   document.getElementById('talk').hidden = !canTalk
   document.getElementById('talk-label').textContent = isListening ? 'Stop listening' : 'Talk to Momo'
-  document.getElementById('voice-label').textContent = `Voice: ${voice ? 'on' : 'off'}`
-  document.getElementById('narrate-label').textContent = `Say every step: ${narrate ? 'on' : 'off'}`
+  document.getElementById('voice-label').textContent = `Answer out loud: ${voice ? 'on' : 'off'}`
+  document.getElementById('listen-row').hidden = !canTalk
+  document.getElementById('listen-label').textContent = `Listen for “Momo”: ${listenForName ? 'on' : 'off'}`
   field.value = ''
   field.focus()
 })

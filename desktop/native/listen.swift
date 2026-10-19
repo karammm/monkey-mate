@@ -1,12 +1,15 @@
-// Push-to-talk for Momo Desktop on macOS: listens to the microphone and turns speech into text with
-// Apple's speech recognizer, on this Mac whenever the Mac supports it. It listens only between
-// "start" and "stop".
+// Momo's ears on macOS: turns speech from the microphone into text with Apple's speech recognizer, on
+// this Mac whenever the Mac supports it. Momo Desktop decides what the words mean (his name, a request);
+// this helper only hears.
 //
-// Reads commands on stdin, one per line: "start" or "stop". Writes one line of JSON per event:
-//   {"listening":true}           the microphone is on
-//   {"partial":"run the te"}     what was heard so far
-//   {"final":"run the tests"}    what was said, once listening ends
-//   {"error":"…"}                speech-permission, microphone, unavailable
+// Reads commands on stdin, one per line:
+//   start   turn the microphone on and keep listening (recognition restarts by itself as needed)
+//   reset   forget what was heard so far and keep listening (after a request, or while Momo talks)
+//   stop    turn the microphone off
+// Writes one line of JSON per event:
+//   {"listening":true} / {"listening":false}
+//   {"heard":"momo what is happening"}     everything heard since the last start or reset
+//   {"error":"speech-permission" | "microphone" | "unavailable"}
 
 import AVFoundation
 import Foundation
@@ -20,88 +23,100 @@ func emit(_ event: [String: Any]) {
     }
 }
 
-final class Listener {
+final class Ears {
     private let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
     private let engine = AVAudioEngine()
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
-    private var heard = ""
-    private var isDone = true
+    private var isOn = false
+    private var session = 0
+    // Recognition tasks end after about a minute; start a fresh one before that.
+    private var renewal: DispatchWorkItem?
 
     func start() {
         SFSpeechRecognizer.requestAuthorization { status in
             DispatchQueue.main.async {
                 guard status == .authorized else { return emit(["error": "speech-permission"]) }
-                self.begin()
+                self.turnOn()
             }
         }
     }
 
-    private func begin() {
-        guard isDone else { return }
+    private func turnOn() {
+        guard !isOn else { return }
         guard let recognizer, recognizer.isAvailable else { return emit(["error": "unavailable"]) }
+        let input = engine.inputNode
+        input.removeTap(onBus: 0)
+        input.installTap(onBus: 0, bufferSize: 1024, format: input.outputFormat(forBus: 0)) { [weak self] buffer, _ in
+            self?.request?.append(buffer)
+        }
+        engine.prepare()
+        do {
+            try engine.start()
+        } catch {
+            return emit(["error": "microphone"])
+        }
+        isOn = true
+        emit(["listening": true])
+        newTask()
+    }
+
+    /** A fresh recognition task: what was heard before is forgotten. */
+    func newTask() {
+        guard isOn, let recognizer else { return }
+        task?.cancel()
+        request?.endAudio()
+        session += 1
+        let current = session
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
         if recognizer.supportsOnDeviceRecognition {
             request.requiresOnDeviceRecognition = true
         }
         self.request = request
-        heard = ""
-        isDone = false
-
-        let input = engine.inputNode
-        input.removeTap(onBus: 0)
-        input.installTap(onBus: 0, bufferSize: 1024, format: input.outputFormat(forBus: 0)) { buffer, _ in
-            request.append(buffer)
-        }
-        engine.prepare()
-        do {
-            try engine.start()
-        } catch {
-            isDone = true
-            return emit(["error": "microphone"])
-        }
-        emit(["listening": true])
-
-        task = recognizer.recognitionTask(with: request) { result, error in
+        task = recognizer.recognitionTask(with: request) { [weak self] result, error in
             DispatchQueue.main.async {
+                guard let self, current == self.session else { return }
                 if let result {
-                    self.heard = result.bestTranscription.formattedString
-                    emit(["partial": self.heard])
-                    if result.isFinal { self.finish() }
+                    emit(["heard": result.bestTranscription.formattedString])
+                    if result.isFinal { self.newTask() }
                 } else if error != nil {
-                    self.finish()
+                    self.newTask()
                 }
             }
         }
+        renewal?.cancel()
+        let renew = DispatchWorkItem { [weak self] in
+            if current == self?.session { self?.newTask() }
+        }
+        renewal = renew
+        DispatchQueue.main.asyncAfter(deadline: .now() + 50, execute: renew)
     }
 
     func stop() {
-        guard !isDone else { return }
-        engine.stop()
-        engine.inputNode.removeTap(onBus: 0)
-        request?.endAudio()
-        // If the recognizer has nothing more to say, finish with what was heard.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { self.finish() }
-    }
-
-    private func finish() {
-        guard !isDone else { return }
-        isDone = true
-        engine.stop()
-        engine.inputNode.removeTap(onBus: 0)
+        guard isOn else { return }
+        isOn = false
+        renewal?.cancel()
         task?.cancel()
         task = nil
+        request?.endAudio()
         request = nil
-        emit(["final": heard])
+        engine.stop()
+        engine.inputNode.removeTap(onBus: 0)
+        emit(["listening": false])
     }
 }
 
-let listener = Listener()
+let ears = Ears()
 DispatchQueue.global().async {
     while let line = readLine() {
         DispatchQueue.main.async {
-            if line == "start" { listener.start() } else if line == "stop" { listener.stop() }
+            switch line {
+            case "start": ears.start()
+            case "reset": ears.newTask()
+            case "stop": ears.stop()
+            default: break
+            }
         }
     }
     exit(0)

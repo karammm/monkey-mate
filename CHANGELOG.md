@@ -2,8 +2,9 @@
 
 ## 0.5.0
 
-- Momo speaks: a cute pitched-up system voice for summaries, warnings, live steps and fun, with a talking mouth
-- Push-to-talk on macOS (menu or ⌥M): what you say goes into Claude Code's prompt box
+- Say "Momo" and talk to him (macOS): he answers out loud, and only then; other requests go into Claude Code's prompt box
+- A cute voice (the system voice played back faster), with Cute, Tiny and Soft presets and a mouth that follows it
+- Push-to-talk (menu or ⌥M) when listening for his name is off
 - Momo Desktop runs as Momo.app on macOS, with its own name, icon and permission descriptions
 
 ## 0.4.0
