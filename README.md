@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/momo-demo.png" alt="Momo, a big-eared white pixel-art monkey, hopping across his stage" width="576">
+<img src="assets/momo.png" alt="Momo, a plush white monkey with huge pink-lined ears and big amber eyes" width="420">
 
 # monkey-mate
 
@@ -29,8 +29,8 @@ at a glance, without blocking or slowing Claude down.
 
 ## Features
 
-- **Animated pixel-art companion.** Momo is drawn in full color in the terminal and hops around his stage.
-  How often and how high he jumps depends on his mood.
+- **A 3D plush companion.** Momo is a soft 3D model, rendered into shaded full-color sprites for the
+  terminal. He hops around his pane, and how often and how high he jumps depends on his mood.
 - **Seven moods.** A rule-based mood engine reacts to test results, build results, errors, risky commands and
   the tone of your prompts. It uses no extra tokens and never sends your code anywhere.
 - **Destructive-command warnings.** `rm -rf`, `git push --force`, `git reset --hard`, `git clean -f`,
@@ -41,6 +41,10 @@ at a glance, without blocking or slowing Claude down.
   the test results and any warnings.
 - **Emotionally balanced.** Momo's mood drifts back toward calm every turn, and a clean turn halves any grudge.
 - **Observe-only.** Momo never blocks, changes or delays a tool call.
+
+<div align="center">
+<img src="assets/momo-demo.png" alt="Momo hopping across his stage as his mood changes" width="648">
+</div>
 
 <div align="center">
 <img src="assets/momo-moods.png" alt="Momo's seven moods: happy, proud, calm, curious, worried, angry, sleepy" width="760">
@@ -95,8 +99,15 @@ In the Claude desktop app: click **+** next to the prompt box, then **Plugins** 
 | Status line | Momo's current mood, always |
 | Desktop app, VS Code | The pane with an ASCII Momo (pixel graphics are terminal-only) |
 
-Pixel art uses true-color half-block characters. It looks best in a terminal with 24-bit color such as
-iTerm2, Ghostty, kitty, WezTerm or Windows Terminal. Others show the nearest colors.
+In the terminal Momo is drawn with true-color half-block characters, two pixels per character cell, so he is
+a 44×32-pixel version of the 3D renders above:
+
+<div align="center">
+<img src="assets/momo-terminal.png" alt="Momo's seven moods as the terminal shows them" width="760">
+</div>
+
+He looks best in a terminal with 24-bit color such as iTerm2, Ghostty, kitty, WezTerm or Windows Terminal;
+others show the nearest colors. The pane needs about 46 columns to fit him.
 
 ## How it works
 
@@ -116,9 +127,12 @@ turn ends ──┘        │                       ▲
 | [`hooks/signals.ts`](hooks/signals.ts) | Classifies tool calls and prompts: tests, builds, errors, risky commands, tone |
 | [`hooks/mood.ts`](hooks/mood.ts) | The mood engine: a score from -100 to +100 with decay, streaks and short flashes |
 | [`hooks/ledger.ts`](hooks/ledger.ts) | Tracks changes per turn and per session |
-| [`hooks/sprite.ts`](hooks/sprite.ts) | Momo's pixel art: 32×28 sprites per mood and pose, built from shapes |
+| [`hooks/sprite.ts`](hooks/sprite.ts) | Loads Momo's baked terminal sprites |
 | [`hooks/stage.ts`](hooks/stage.ts) | Jump physics and encoding pixels into terminal cells |
 | [`hooks/ui.tsx`](hooks/ui.tsx) | The pane and the band |
+
+| [`scripts/momo3d.ts`](scripts/momo3d.ts) | Momo's 3D model: soft signed-distance shapes, plush lighting, expressions |
+| [`scripts/bake.ts`](scripts/bake.ts) | Renders the model into `hooks/sprites.generated.ts` and the images in `assets/` |
 
 Everything except `register.tsx` and `ui.tsx` is pure TypeScript with no Claude Code API calls, so it is easy
 to test and to extend.
@@ -143,6 +157,7 @@ git clone https://github.com/karammm/monkey-mate && cd monkey-mate
 claude --plugin-dir .        # run Claude Code with Momo loaded; saving a file reloads him
 claude plugin validate .     # check the manifest and hooks
 claude plugin test .         # run the test suite
+bun scripts/bake.ts          # after changing the 3D model: re-render sprites and images
 ```
 
 ## Roadmap

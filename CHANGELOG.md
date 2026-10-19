@@ -2,7 +2,8 @@
 
 ## 0.2.0
 
-- Momo is now full-color pixel art in the terminal: a plush white monkey with huge ears, big amber eyes, seven expressions and sunglasses when proud
+- Momo is now a 3D plush: a white monkey with huge pink-lined ears, big glossy amber eyes, a curly tail, seven expressions and sunglasses when proud
+- The 3D model (scripts/momo3d.ts) is rendered into shaded terminal sprites and README images by `bun scripts/bake.ts`
 - Momo hops around the pane: jump height, distance and restlessness follow his mood, with a shadow and landing squash
 - Momo reacts with a jump the moment something happens
 - Professional README with an animated demo

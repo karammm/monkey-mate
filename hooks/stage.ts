@@ -2,7 +2,7 @@
 // Pure: no engine calls. Each terminal cell holds two pixels, top and bottom, drawn with '▀'.
 
 import type { Emotion } from '../types'
-import { SPRITE_HEIGHT, SPRITE_WIDTH, spritePixels, spriteRows, TRANSPARENT } from './sprite'
+import { SPRITE_HEIGHT, SPRITE_WIDTH, spritePixels, TRANSPARENT } from './sprite'
 import type { Pose } from './sprite'
 
 const GRAVITY = 0.9 // pixels per tick per tick
@@ -121,7 +121,7 @@ export function paint(actor: Actor, emotion: Emotion, stage: Stage): number[][] 
     }
   }
 
-  const sprite = spritePixels(spriteRows(emotion, poseOf(actor), actor.blinkTicks < 3), actor.isFacingLeft)
+  const sprite = spritePixels(emotion, poseOf(actor), actor.blinkTicks < 3, actor.isFacingLeft)
   sprite.forEach((row, rowIndex) =>
     row.forEach((color, columnIndex) => {
       if (color !== TRANSPARENT) {

@@ -1,10 +1,13 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { SPRITE_HEIGHT, SPRITE_WIDTH, spriteRows, PALETTE } from '../hooks/sprite'
+import type { Emotion } from '../types'
+import { SPRITE_HEIGHT, SPRITE_WIDTH, spriteKey, spritePixels, TRANSPARENT } from '../hooks/sprite'
+import type { Pose } from '../hooks/sprite'
+import { SPRITES } from '../hooks/sprites.generated'
 import { encodeCells, initialActor, paint, poseOf, step, toBase64 } from '../hooks/stage'
 
 const EMOTIONS = ['happy', 'proud', 'calm', 'curious', 'worried', 'angry', 'sleepy'] as const
-const STAGE = { columns: 44, rows: 20 }
+const STAGE = { columns: 52, rows: 22 }
 
 // A fixed sequence instead of Math.random, so runs repeat.
 const sequence = () => {
@@ -16,19 +19,33 @@ const sequence = () => {
 }
 
 describe('sprite', () => {
-  test('every pose fills the sprite box and uses only palette colors', () => {
-    for (const emotion of EMOTIONS) {
-      for (const pose of ['sit', 'jump', 'squash'] as const) {
-        const rows = spriteRows(emotion, pose, false)
-        expect(rows.length).toBe(SPRITE_HEIGHT)
-        for (const row of rows) {
-          expect(row.length).toBe(SPRITE_WIDTH)
-          for (const char of row) {
-            expect(char === '.' || PALETTE[char] !== undefined).toBe(true)
-          }
+  test('every baked sprite decodes to a full box of real colors', () => {
+    for (const key of Object.keys(SPRITES)) {
+      const [emotion, pose, blink] = key.split(':') as [Emotion, Pose, string]
+      const pixels = spritePixels(emotion, pose, blink === '1', false)
+      expect(pixels.length).toBe(SPRITE_HEIGHT)
+      let solid = 0
+      for (const row of pixels) {
+        expect(row.length).toBe(SPRITE_WIDTH)
+        for (const color of row) {
+          expect(color === TRANSPARENT || (color >= 0 && color <= 0xffffff)).toBe(true)
+          solid += color === TRANSPARENT ? 0 : 1
         }
       }
+      // Momo fills a good part of his box.
+      expect(solid > (SPRITE_WIDTH * SPRITE_HEIGHT) / 4).toBe(true)
     }
+  })
+
+  test('there is a sprite for every mood and pose, and facing left mirrors it', () => {
+    for (const emotion of EMOTIONS) {
+      for (const pose of ['sit', 'jump', 'squash'] as const) {
+        expect(SPRITES[spriteKey(emotion, pose, false)] !== undefined).toBe(true)
+      }
+    }
+    const right = spritePixels('calm', 'sit', false, false)
+    const left = spritePixels('calm', 'sit', false, true)
+    expect(left[10]).toEqual([...(right[10] ?? [])].reverse())
   })
 })
 
