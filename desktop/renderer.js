@@ -36,6 +36,8 @@ const state = {
   hearts: [],
   // What Claude is doing right now, while a turn runs: { text } or null.
   work: null,
+  // True while you type or move the mouse: Momo holds still.
+  isUserBusy: false,
 }
 
 // How the ears and tail move per mood: ear angle (radians, up is positive), wiggle size and speed (Hz).
@@ -131,7 +133,7 @@ function leap(plan) {
 function step() {
   const mood = emotion()
   const plan = state.work && mood !== 'sleepy' ? WORKING : PLANS[mood]
-  momo.twitch = momo.twitch.map(frames => (frames > 0 ? frames - 1 : Math.random() < 0.002 ? 10 : 0))
+  momo.twitch = momo.twitch.map(frames => (frames > 0 ? frames - 1 : !state.isUserBusy && Math.random() < 0.002 ? 10 : 0))
   momo.blink = momo.blink <= 0 ? 90 + Math.random() * 180 : momo.blink - 1
   momo.squash = Math.max(0, momo.squash - 1)
 
@@ -151,8 +153,8 @@ function step() {
       momo.target = null
     }
   } else if (momo.mode === 'perched') {
-    momo.perchFrames -= 1
-    if (momo.perchFrames <= 0 && mood !== 'sleepy') {
+    if (!state.isUserBusy) momo.perchFrames -= 1
+    if (momo.perchFrames <= 0 && mood !== 'sleepy' && !state.isUserBusy) {
       // Hop down to the floor.
       momo.target = null
       momo.vy = -6
@@ -162,10 +164,16 @@ function step() {
     }
   } else if (momo.mode === 'idle') {
     momo.y = state.floor
+    // He finishes a jump he is in, but starts none while you are busy.
+    if (state.isUserBusy) return finishStep()
     momo.rest -= 1
     if (plan && momo.rest <= 0) leap(plan)
   }
 
+  finishStep()
+}
+
+function finishStep() {
   state.hearts = state.hearts
     .map(heart => ({ ...heart, y: heart.y - 1.2, life: heart.life - 1 }))
     .filter(heart => heart.life > 0)
@@ -234,8 +242,10 @@ function drawMomo(mood) {
   const body = sprites[`${mood}-${pose}-${blink}`] ?? sprites[`${mood}-${pose}-0`]
   const t = performance.now() / 1000
   const look = state.work && mood !== 'sleepy' ? 'working' : mood
-  const ears = EARS[look]
-  const tail = TAILS[look]
+  // While you are busy the ears and tail barely move: just the base pose and a slow breath.
+  const still = state.isUserBusy ? 0.15 : 1
+  const ears = { ...EARS[look], amp: EARS[look].amp * still, hz: state.isUserBusy ? 0.3 : EARS[look].hz }
+  const tail = { ...TAILS[look], amp: TAILS[look].amp * still, hz: state.isUserBusy ? 0.3 : TAILS[look].hz }
   // In the air the ears trail behind: down while rising, up while falling.
   const flap = momo.mode === 'air' ? Math.max(-0.45, Math.min(0.45, momo.vy * 0.04)) : 0
   const earAngle = (side, phase) =>
@@ -375,17 +385,22 @@ window.addEventListener('mouseup', () => {
   if (!moved) pet()
 })
 
+window.monkeyMate.onUserBusy(busy => {
+  state.isUserBusy = busy
+  // When you stop, he waits a moment before moving again.
+  if (!busy && momo.mode === 'idle') momo.rest = Math.max(momo.rest, 30)
+})
 window.monkeyMate.onActivity(({ working, text }) => {
   state.work = working ? { text: text || 'Claude is working' } : null
   state.lastNews = Date.now()
-  if (working && momo.mode === 'idle') momo.rest = 0
+  if (working && momo.mode === 'idle' && !state.isUserBusy) momo.rest = 0
 })
 window.monkeyMate.onMood(({ emotion, text }) => {
   if (EMOTIONS.includes(emotion)) state.emotion = emotion
   state.lastNews = Date.now()
   if (text) state.bubble = { text, until: Date.now() + 7000 }
-  // Momo reacts right away.
-  if (momo.mode === 'idle') momo.rest = 0
+  // Momo reacts right away, unless you are busy.
+  if (momo.mode === 'idle' && !state.isUserBusy) momo.rest = 0
 })
 window.monkeyMate.onFloor(floor => {
   state.floor = floor

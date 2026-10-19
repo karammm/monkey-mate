@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('monkeyMate', {
   onPet: callback => ipcRenderer.on('pet', () => callback()),
   onSummon: callback => ipcRenderer.on('summon', () => callback()),
   onTour: callback => ipcRenderer.on('tour', () => callback()),
+  onUserBusy: callback => ipcRenderer.on('user-busy', (_event, busy) => callback(busy)),
   onSize: callback => ipcRenderer.on('size', (_event, size) => callback(size)),
   setHover: isOverMomo => ipcRenderer.send('hover', isOverMomo),
 })

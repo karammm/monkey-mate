@@ -1,7 +1,7 @@
 // Momo Desktop: a transparent, click-through window over the whole screen where Momo roams.
 // The monkey-mate plugin tells it how Momo feels by POSTing to http://127.0.0.1:47321/mood.
 
-const { app, BrowserWindow, ipcMain, Menu, nativeImage, screen, Tray } = require('electron')
+const { app, BrowserWindow, ipcMain, Menu, nativeImage, powerMonitor, screen, Tray } = require('electron')
 const http = require('node:http')
 const path = require('node:path')
 
@@ -80,7 +80,7 @@ function startServer() {
     // Where Momo is and how he feels, for checking that he moves.
     if (request.method === 'GET' && request.url === '/status') {
       win?.webContents
-        .executeJavaScript('JSON.stringify({ x: Math.round(momo.x), y: Math.round(momo.y), mode: momo.mode, emotion: emotion(), floor: state.floor })')
+        .executeJavaScript('JSON.stringify({ x: Math.round(momo.x), y: Math.round(momo.y), mode: momo.mode, emotion: emotion(), floor: state.floor, isUserBusy: state.isUserBusy })')
         .then(json => response.end(json))
         .catch(() => response.end('{}'))
       return
@@ -124,11 +124,26 @@ ipcMain.on('hover', (_event, isOverMomo) => {
   win?.setIgnoreMouseEvents(!isOverMomo, { forward: true })
 })
 
+// While you are typing or using the mouse anywhere, Momo keeps still so he never distracts you.
+// The system's idle time counts whole seconds since the last keyboard or mouse input.
+const QUIET_AFTER_SECONDS = 3
+let isUserBusy = false
+function watchInput() {
+  setInterval(() => {
+    const busy = powerMonitor.getSystemIdleTime() < QUIET_AFTER_SECONDS
+    if (busy !== isUserBusy) {
+      isUserBusy = busy
+      win?.webContents.send('user-busy', busy)
+    }
+  }, 250)
+}
+
 app.whenReady().then(() => {
   if (process.platform === 'darwin') app.dock?.hide()
   createWindow()
   createTray()
   startServer()
+  watchInput()
 })
 
 app.on('window-all-closed', () => app.quit())
