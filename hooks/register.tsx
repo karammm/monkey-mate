@@ -80,10 +80,21 @@ async function showActivity($: EngineInterface, text: string | null) {
 // it wrote to ~/.monkey-mate/desktop-token. The request goes into the prompt box as a draft; you send it.
 let desktopKey: string | null = null
 
+let isCollecting = false
+
 async function collectRequests($: EngineInterface) {
-  if (!isDesktopUp) {
+  if (!isDesktopUp || isCollecting) {
     return
   }
+  isCollecting = true
+  try {
+    await collectNow($)
+  } finally {
+    isCollecting = false
+  }
+}
+
+async function collectNow($: EngineInterface) {
   if (desktopKey === null) {
     const home = (await $.env.get('HOME')) ?? (await $.env.get('USERPROFILE'))
     const key = home ? await $.fs.read(`${home}/.monkey-mate/desktop-token`).catch(() => '') : ''
@@ -101,16 +112,128 @@ async function collectRequests($: EngineInterface) {
   if (!response?.ok) {
     return
   }
-  const requests = JSON.parse(response.text) as { type?: unknown; text?: unknown }[]
+  const requests = JSON.parse(response.text) as { type?: unknown; text?: unknown; byName?: unknown }[]
   for (const request of requests) {
-    if (request.type !== 'ask' || typeof request.text !== 'string' || request.text.trim() === '') {
+    if (typeof request.text !== 'string' || request.text.trim() === '') {
       continue
     }
-    const draft = await $.prompt.read()
-    const isEmpty = draft.text.trim() === ''
-    await $.prompt.fill({ text: isEmpty ? request.text : `\n${request.text}`, mode: isEmpty ? 'replace' : 'append' })
-    $.ui.toast('🐒 Momo put your request in the prompt box. Press Enter to send it.')
+    if (request.type === 'ask') {
+      await draftForClaude($, request.text)
+    } else if (request.type === 'question') {
+      await answerQuestion($, request.text, request.byName === true)
+    }
   }
+}
+
+/** Puts a request in Claude Code's prompt box as a draft; the person sends it. */
+async function draftForClaude($: EngineInterface, text: string) {
+  const draft = await $.prompt.read()
+  const isEmpty = draft.text.trim() === ''
+  await $.prompt.fill({ text: isEmpty ? text : `\n${text}`, mode: isEmpty ? 'replace' : 'append' })
+  $.ui.toast('🐒 Momo put your request in the prompt box. Press Enter to send it.')
+}
+
+/**
+ * Anything said to Momo that he cannot do himself: a quick model call decides whether it is a question
+ * (answered in a sentence or two, for him to say) or a task (drafted for Claude, for the person to send).
+ */
+async function answerQuestion($: EngineInterface, question: string, byName: boolean) {
+  const facts = await gatherFacts($)
+  const result = await $.model.complete({
+    model: 'haiku',
+    maxTokens: 200,
+    timeoutMs: 20_000,
+    system: MOMO_MIND,
+    prompt: `Facts right now:\n${facts}\n\nThe person said to you: "${question.slice(0, 400)}"`,
+  })
+  const reply = result.isAnswered ? parseReply(result.text) : null
+  if (reply?.kind === 'task') {
+    await draftForClaude($, question)
+    await tellDesktopReply($, 'Okay! I put it in Claude’s prompt box. Press Enter to send it ✨', byName)
+    return
+  }
+  await tellDesktopReply($, reply?.say ?? 'Hmm, my brain is fuzzy right now 🙈 Try again?', byName)
+}
+
+const MOMO_MIND = [
+  'You are Momo, a cute little white monkey who keeps the person company while they code with Claude Code.',
+  'The person just said something to you out loud. Reply with JSON only, no other text:',
+  '{"kind":"answer","say":"..."} to answer, or {"kind":"task"} when they want something done to their code,',
+  'files or computer (write, change, fix, run, build, test, create, install, delete, commit, push...).',
+  'An answer is one or two short, simple, friendly sentences to be spoken aloud: no markdown, no lists,',
+  'round numbers, at most 30 words, a little playful. For questions about their computer, Claude or the',
+  'project, use the facts given; if the facts do not say, say you are not sure. Never make numbers up.',
+].join(' ')
+
+function parseReply(text: string): { kind: 'answer' | 'task'; say?: string } | null {
+  const json = text.match(/\{[\s\S]*\}/)?.[0]
+  if (!json) {
+    return text.trim() ? { kind: 'answer', say: text.trim().slice(0, 300) } : null
+  }
+  try {
+    const value = JSON.parse(json) as { kind?: unknown; say?: unknown }
+    if (value.kind === 'task') {
+      return { kind: 'task' }
+    }
+    return typeof value.say === 'string' ? { kind: 'answer', say: value.say.slice(0, 300) } : null
+  } catch {
+    return null
+  }
+}
+
+/** A quick, read-only snapshot for Momo to answer from: the computer, Claude's work, the project. */
+async function gatherFacts($: EngineInterface): Promise<string> {
+  const isWindows = (await $.env.get('OS')) === 'Windows_NT'
+  const run = async (argv: string[]) => {
+    const result = await $.process.run(argv, { timeoutMs: 4000 }).catch(() => null)
+    return result?.exitCode === 0 ? result.stdout.trim().slice(0, 1200) : ''
+  }
+  const computer = isWindows
+    ? [
+        await run([
+          'powershell',
+          '-NoProfile',
+          '-Command',
+          'Get-CimInstance Win32_Processor | Select-Object Name,LoadPercentage | Format-List; ' +
+            'Get-CimInstance Win32_OperatingSystem | Select-Object FreePhysicalMemory,TotalVisibleMemorySize | Format-List; ' +
+            'Get-PSDrive C | Select-Object Used,Free | Format-List; ' +
+            'Get-CimInstance Win32_Battery | Select-Object EstimatedChargeRemaining,BatteryStatus | Format-List',
+        ]),
+      ]
+    : [
+        await run(['sh', '-c', 'top -l 1 -n 0 2>/dev/null | head -n 10 || top -bn1 | head -n 5']),
+        await run(['sh', '-c', 'sysctl -n machdep.cpu.brand_string hw.ncpu 2>/dev/null; uptime']),
+        await run(['sh', '-c', 'pmset -g batt 2>/dev/null']),
+        await run(['df', '-h', '/']),
+      ]
+  const ledger = await read($, ledgerAtom)
+  const activity = await read($, activityAtom)
+  const branch = await run(['git', 'rev-parse', '--abbrev-ref', 'HEAD'])
+  const emotion = emotionOf(await read($, moodAtom), await $.clock.now())
+
+  return [
+    `Time: ${new Date(await $.clock.now()).toString()}`,
+    `Claude right now: ${activity ?? 'waiting for the person'}`,
+    `Last turn: ${ledger.last ? summarizeTurn(ledger.last) : 'nothing changed yet this session'}`,
+    `This session: ${describeSession(ledger).join('; ')}`,
+    `Project folder: ${await $.session.cwd().catch(() => 'unknown')}${branch ? `, git branch ${branch}` : ''}`,
+    `Momo's mood: ${emotion}`,
+    'Computer:',
+    ...computer.filter(Boolean),
+  ].join('\n')
+}
+
+async function tellDesktopReply($: EngineInterface, text: string, byName: boolean) {
+  if (!isDesktopUp || desktopKey === null) {
+    return
+  }
+  await $.http
+    .fetch(`${DESKTOP}/reply`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-momo-token': desktopKey },
+      body: JSON.stringify({ text, byName }),
+    })
+    .catch(() => undefined)
 }
 
 async function checkDesktop($: EngineInterface): Promise<boolean> {

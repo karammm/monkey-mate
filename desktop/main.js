@@ -20,6 +20,8 @@ let trayMenu = null
 // Requests for Claude typed into Momo's menu wait here until the monkey-mate plugin collects them.
 // Only the plugin can: it must send the key in ~/.monkey-mate/desktop-token, a file only you can read.
 const inbox = []
+// When the plugin last collected from the inbox: if recently, Claude Code is there to think for Momo.
+let lastCollected = 0
 const TOKEN = crypto.randomBytes(24).toString('hex')
 function writeToken() {
   const folder = path.join(os.homedir(), '.monkey-mate')
@@ -275,7 +277,7 @@ setInterval(() => {
   if (!turn || isSpeaking) return
   const quiet = Date.now() - turn.lastChange
   // Just his name, then a pause: he says "Yes?" and listens for what comes next.
-  if (!turn.request && !turn.pushToTalk && !turn.prompted && quiet > 1500) {
+  if (!turn.request && !turn.pushToTalk && !turn.prompted && quiet > 2500) {
     turn.prompted = true
     turn.takeAll = true
     turn.lastChange = Date.now()
@@ -317,6 +319,8 @@ ipcMain.on('muted', (_event, muted) => {
   if (item) item.checked = muted === true
 })
 ipcMain.on('ask', (_event, text) => inbox.push({ type: 'ask', text: String(text).slice(0, 400) }))
+ipcMain.on('question', (_event, { text, byName }) => inbox.push({ type: 'question', text: String(text).slice(0, 400), byName: byName === true }))
+ipcMain.handle('can-think', () => Date.now() - lastCollected < 6000)
 
 // Momo's voice: a natural AI voice (Kokoro, running on this computer) spoken a little slowly; Momo
 // Desktop plays it back faster, which makes it a small boy's voice. The voice model (about 90 MB) is
@@ -507,8 +511,33 @@ function startServer() {
         response.end()
         return
       }
+      lastCollected = Date.now()
       response.setHeader('content-type', 'application/json')
       response.end(JSON.stringify(inbox.splice(0)))
+      return
+    }
+    // The plugin's answer to something said to Momo; only the plugin (with the key) can send one.
+    if (request.method === 'POST' && request.url === '/reply') {
+      if (request.headers['x-momo-token'] !== TOKEN) {
+        response.statusCode = 403
+        response.end()
+        return
+      }
+      let body = ''
+      request.on('data', chunk => {
+        body += chunk
+        if (body.length > 10_000) request.destroy()
+      })
+      request.on('end', () => {
+        try {
+          const { text, byName } = JSON.parse(body)
+          win?.webContents.send('reply', { text: String(text ?? '').slice(0, 400), byName: byName === true })
+          response.end('ok')
+        } catch {
+          response.statusCode = 400
+          response.end()
+        }
+      })
       return
     }
     // Where Momo is and how he feels, for checking that he moves.

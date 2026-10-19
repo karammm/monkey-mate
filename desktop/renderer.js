@@ -431,9 +431,13 @@ function draw() {
 
   // Speech and thoughts show in the glass bubble window, which follows Momo's head.
   let message = null
+  if (state.thinking && Date.now() - state.thinking.since > 25000) state.thinking = null
   if (state.listening) {
     const dots = '.'.repeat(1 + (Math.floor(Date.now() / 400) % 3))
     message = { text: state.listening.text ? `🎤 “${state.listening.text}”` : `🎤 Listening${dots}`, kind: 'thought' }
+  } else if (state.thinking) {
+    const dots = '.'.repeat(1 + (Math.floor(Date.now() / 400) % 3))
+    message = { text: `🤔 Let me think${dots}`, kind: 'thought' }
   } else if (state.bubble && Date.now() < state.bubble.until) {
     message = { text: state.bubble.text, kind: 'speech' }
   } else if (state.work) {
@@ -759,12 +763,6 @@ function answer(request) {
     stopDance()
     return reply('Okay! 🤐', 1800)
   }
-  if (is(/\b(what('s| is)? (happening|going on|up)|what is claude doing|status|are you busy)\b/)) {
-    return reply(state.work ? `Claude is busy. ${state.work.text}.` : 'Claude is waiting for you. All calm here 🙂')
-  }
-  if (is(/\b(what (changed|did (you|claude) (do|change))|summary|recap|last turn)\b/)) {
-    return reply(state.lastSummary ?? 'Nothing changed yet. I am watching! 👀', 5000)
-  }
   if (is(/\bjoke\b/)) {
     gesture(['clap', 1200])
     return reply(JOKES[Math.floor(Math.random() * JOKES.length)], 7000)
@@ -784,16 +782,32 @@ function answer(request) {
     return reply('Good night! 😴', 2000)
   }
   if (is(/^(hi|hello|hey|yo)\b/) && said.split(' ').length <= 3) return reply('Hi! 👋 Happy to see you!', 2500)
-  if (is(/\bhow are you\b/)) return reply(`I feel ${emotion()}! ${EMOJI[emotion()] ?? ''}`, 2500)
   if (is(/\b(thank|thanks|good (job|boy|monkey))\b/)) {
     pet()
     return reply('Aww, you are welcome! 💗', 2500)
   }
-  // Anything else is a job for Claude: it goes in the prompt box, and you send it.
-  window.monkeyMate.ask(request)
-  gesture(['wave', 1000])
-  reply('Okay! I put it in Claude’s prompt box. Press Enter to send it ✨', 4500)
+  // Anything else: Claude Code thinks it over (the monkey-mate plugin), and either Momo answers or the
+  // request goes into Claude's prompt box for you to send.
+  const byName = isAskedByName
+  window.monkeyMate.canThink().then(canThink => {
+    if (!canThink) {
+      window.monkeyMate.ask(request)
+      return say1('I put it in Claude’s prompt box. Press Enter to send it ✨', 4500)
+    }
+    window.monkeyMate.question({ text: request, byName })
+    state.thinking = { since: Date.now() }
+    gesture(['think', 15000])
+  })
 }
+
+// The answer comes back from the plugin a few seconds later.
+window.monkeyMate.onReply(({ text, byName }) => {
+  state.thinking = null
+  if (currentGesture() === 'think') momo.gestures = []
+  isAskedByName = byName
+  reply(text, 7000)
+  isAskedByName = false
+})
 
 const EMOJI = { happy: '😄', proud: '🤩', calm: '🙂', curious: '🤔', worried: '😟', angry: '😠', sleepy: '😴' }
 
