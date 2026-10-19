@@ -1,90 +1,156 @@
-# monkey-mate 🐒
+<div align="center">
 
-**Momo** is a cute little white monkey who lives next to your Claude Code session.
-Momo watches what Claude does, cheers when tests go green, gets worried before risky commands,
-grumbles when the same error shows up twice, and calms down again: an emotionally balanced coding buddy.
+<img src="assets/momo-demo.png" alt="Momo, a white pixel-art monkey, hopping across his stage" width="576">
 
-```
-    .-"""""-.
- .-/         \-.     Momo 😄 happy
-( (|  ^   ^  |) )    mood ██████░░░░ +24
- '-\  \___/  /-'    ╭─────────────────────────────╮
-    '-.___.-'       │ Tests are green! 🎉          │
-     /|   |\        ╰─────────────────────────────╯
-      |___|
-```
+# monkey-mate
 
-## What Momo does
+**An emotionally aware companion for Claude Code.**
 
-| Momo sees | Momo feels |
+Momo is a small white snow monkey who lives in a side pane of your Claude Code session. He watches every
+tool call, reacts to how the work is going, warns you before destructive commands, and summarises what
+changed at the end of every turn.
+
+[![CI](https://github.com/karammm/monkey-mate/actions/workflows/ci.yml/badge.svg)](https://github.com/karammm/monkey-mate/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Claude Code plugin](https://img.shields.io/badge/Claude%20Code-plugin-d97757.svg)](https://claude.com/claude-code)
+![Platforms](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg)
+
+[Installation](#installation) · [Features](#features) · [Commands](#commands) · [How it works](#how-it-works) · [Contributing](#contributing)
+
+</div>
+
+---
+
+## Why
+
+Long agentic coding sessions are a wall of tool calls. It is easy to miss that the same test has failed
+three times, or that a `git reset --hard` just went by. Momo turns those signals into something you notice
+at a glance, without blocking or slowing Claude down.
+
+## Features
+
+- **Animated pixel-art companion.** Momo is drawn in full color in the terminal and hops around his stage.
+  How often and how high he jumps depends on his mood.
+- **Seven moods.** A rule-based mood engine reacts to test results, build results, errors, risky commands and
+  the tone of your prompts. It uses no extra tokens and never sends your code anywhere.
+- **Destructive-command warnings.** `rm -rf`, `git push --force`, `git reset --hard`, `git clean -f`,
+  `DROP TABLE`, `mkfs`, `dd`, and on Windows `Remove-Item -Recurse -Force`, `rd /s` and `del /s`.
+- **Repeated-failure detection.** When the same error appears twice in a row, Momo tells you to step back and
+  try a different approach.
+- **Turn summaries.** At the end of every turn Momo reports the files created and edited, the commands run,
+  the test results and any warnings.
+- **Emotionally balanced.** Momo's mood drifts back toward calm every turn, and a clean turn halves any grudge.
+- **Observe-only.** Momo never blocks, changes or delays a tool call.
+
+<div align="center">
+<img src="assets/momo-moods.png" alt="Momo's seven moods: happy, proud, calm, curious, worried, angry, sleepy" width="632">
+</div>
+
+| Mood | When |
 | --- | --- |
-| tests pass, builds succeed, steady edits | 😄 happy → 😎 proud on a long streak |
-| a new prompt | 🤔 curious |
-| `rm -rf`, `git push --force`, `git reset --hard`, `DROP TABLE`, `Remove-Item -Recurse -Force`... | 😟 worried + a warning toast |
-| a failing test or command | 😟 worried |
-| **the same error twice** | 😠 angry: "Try a different approach!" |
-| you typing "wrong", "again", "still broken" | 😟 concerned, suggests slowing down |
-| "thanks", "perfect" | 😄 happy |
-| nothing for 10 minutes | 😴 sleepy |
+| 😄 **Happy** | Tests pass, builds succeed, you say thanks |
+| 😎 **Proud** | A long streak of successful work |
+| 🙂 **Calm** | Nothing notable is happening |
+| 🤔 **Curious** | You have just sent a new prompt |
+| 😟 **Worried** | A command or test failed, or a destructive command ran |
+| 😠 **Angry** | The same error happened twice in a row |
+| 😴 **Sleepy** | Nothing has happened for 10 minutes |
 
-Momo's mood is a score from -100 to +100 that drifts back toward calm every turn, and a clean turn
-halves any grudge. Momo **only watches and warns. Momo never blocks or changes what Claude does.**
+## Installation
 
-At the end of every turn Momo tells you whether it went well and **shows what changed**:
-files created and edited, commands run, test results and warnings.
-
-## Commands
-
-| Command | What it does |
-| --- | --- |
-| `/momo` | Momo's mood and help |
-| `/momo changes` | what changed in the last turn |
-| `/momo recap` | the whole session so far |
-| `/momo pet` | make Momo happy |
-| `/momo quiet` / `/momo loud` | turn warning toasts off / on |
-
-Momo sits in a side pane on wide terminals (110+ columns) and in a one-line band above the prompt on narrow ones.
-The status line always shows Momo's mood.
-
-## Install
+Requires Claude Code **2.1.303 or later**.
 
 At the prompt of a Claude Code terminal session:
 
-```
+```text
 /plugin install monkey-mate --marketplace karammm/monkey-mate
 ```
 
-Answer `y` to add the marketplace, then choose a scope. From a shell:
+Answer `y` to add the marketplace, then choose a scope. Or from a shell:
 
-```
+```bash
 claude plugin install monkey-mate --marketplace karammm/monkey-mate
 ```
 
-In the desktop app: click + next to the prompt box, then Plugins, Add marketplace with `karammm/monkey-mate`, then Add plugin.
+In the Claude desktop app: click **+** next to the prompt box, then **Plugins** → **Add marketplace** with
+`karammm/monkey-mate` → **Add plugin**.
 
-Works on macOS, Linux and Windows: Momo runs inside Claude Code, with no shell scripts.
-Needs a Claude Code build with function-hook plugins (2.1.303 or newer). That plugin API is early access, so a future release may need an update here.
+## Commands
 
-## Develop
-
-```
-git clone https://github.com/karammm/monkey-mate && cd monkey-mate
-claude --plugin-dir .          # run Claude Code with Momo loaded; saves hot-reload
-claude plugin validate .       # check the manifest and hooks
-claude plugin test .           # run the tests
-```
-
-| File | What it is |
+| Command | Description |
 | --- | --- |
-| `hooks/register.tsx` | wires Claude Code events to Momo |
-| `hooks/signals.ts` | turns tool calls and prompts into signals (tests, errors, risky commands...) |
-| `hooks/mood.ts` | the emotional engine |
-| `hooks/ledger.ts` | what-changed tracking |
-| `hooks/art.ts`, `hooks/phrases.ts` | Momo's faces and words |
-| `hooks/ui.tsx` | the pane and the band |
+| `/momo` | Show Momo's mood and the list of commands |
+| `/momo changes` | Summarise what changed in the last turn |
+| `/momo recap` | Summarise the whole session |
+| `/momo pet` | Cheer Momo up |
+| `/momo quiet` | Stop warning toasts (the pane and status line still update) |
+| `/momo loud` | Turn warning toasts back on |
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). New faces, phrases and risky-command patterns are very welcome.
+## Display
+
+| Where | What you see |
+| --- | --- |
+| Terminal, 110+ columns | A side pane with animated pixel-art Momo, his mood meter and a speech bubble |
+| Terminal, narrower | A one-line strip above the prompt |
+| Status line | Momo's current mood, always |
+| Desktop app, VS Code | The pane with an ASCII Momo (pixel graphics are terminal-only) |
+
+Pixel art uses true-color half-block characters. It looks best in a terminal with 24-bit color such as
+iTerm2, Ghostty, kitty, WezTerm or Windows Terminal. Others show the nearest colors.
+
+## How it works
+
+monkey-mate is a Claude Code function-hook plugin written in TypeScript. It runs inside Claude Code, with no
+shell scripts, background processes or network access.
+
+```
+tool calls ─┐
+prompts ────┼─► signals.ts ─► mood.ts ───► ui.tsx  (pane, band, status line)
+turn ends ──┘        │                       ▲
+                     └──► ledger.ts ─────────┘   stage.ts + sprite.ts (animation)
+```
+
+| Module | Responsibility |
+| --- | --- |
+| [`hooks/register.tsx`](hooks/register.tsx) | Connects Claude Code events to the modules below |
+| [`hooks/signals.ts`](hooks/signals.ts) | Classifies tool calls and prompts: tests, builds, errors, risky commands, tone |
+| [`hooks/mood.ts`](hooks/mood.ts) | The mood engine: a score from -100 to +100 with decay, streaks and short flashes |
+| [`hooks/ledger.ts`](hooks/ledger.ts) | Tracks changes per turn and per session |
+| [`hooks/sprite.ts`](hooks/sprite.ts) | Momo's pixel art: 18×18 sprites per mood and pose |
+| [`hooks/stage.ts`](hooks/stage.ts) | Jump physics and encoding pixels into terminal cells |
+| [`hooks/ui.tsx`](hooks/ui.tsx) | The pane and the band |
+
+Everything except `register.tsx` and `ui.tsx` is pure TypeScript with no Claude Code API calls, so it is easy
+to test and to extend.
+
+## Privacy
+
+Momo keeps everything in memory for the current session, except the `/momo quiet` setting, which Claude Code
+stores locally. Nothing is sent over the network and no model calls are made.
+
+## Limitations
+
+- Momo lives inside his pane. Claude Code plugins cannot draw over the conversation itself.
+- The function-hook plugin API is in early access, so a future Claude Code release may need an update here.
+
+## Contributing
+
+Contributions are welcome: new phrases, risky-command patterns, poses and moods. See
+[CONTRIBUTING.md](CONTRIBUTING.md).
+
+```bash
+git clone https://github.com/karammm/monkey-mate && cd monkey-mate
+claude --plugin-dir .        # run Claude Code with Momo loaded; saving a file reloads him
+claude plugin validate .     # check the manifest and hooks
+claude plugin test .         # run the test suite
+```
+
+## Roadmap
+
+- Optional sound effects
+- Optional AI-written one-liners (off by default)
+- Lifetime statistics across sessions
 
 ## License
 
-MIT
+[MIT](LICENSE) © karammm

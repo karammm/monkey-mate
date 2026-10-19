@@ -60,7 +60,6 @@ declare module 'claude-code' {
       mood: Mood
       ledger: Ledger
       bubble: Bubble
-      frame: number
     }
   }
 }

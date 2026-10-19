@@ -18,6 +18,8 @@ test('the pane shows Momo and the speech bubble on every surface', async ($, on)
     })
     expect(await ui.find({ type: 'Text', text: /Momo/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /coding buddy/ })).toBeDefined()
+    // The terminal paints pixel-art Momo; other surfaces draw the ASCII one.
+    expect((await ui.find({ type: 'Raster' })) !== undefined).toBe(surface === 'terminal')
     await ui.unmount()
   }
 })

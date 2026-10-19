@@ -1,17 +1,21 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Bubble } from '../types'
+import type { Bubble, Emotion, Mood } from '../types'
 import { EMOJI } from './art'
 import { closeTurn, describeSession, describeTurn, emptyLedger, hadTrouble, record } from './ledger'
 import { applySignal, emotionOf, initialMood, resolveSignal, settle } from './mood'
 import { loudest, moodLine, reaction } from './phrases'
 import { classifyPrompt, classifyTool, errorKey } from './signals'
 import type { Observation, Signal } from './signals'
-import { band, pane, PANE_MIN_COLUMNS } from './ui'
+import { encodeCells, initialActor, paint, step } from './stage'
+import type { Stage } from './stage'
+import { band, pane, PANE_MIN_COLUMNS, STAGE_KEY } from './ui'
 
 const PANE = 'momo'
-const TICK_MS = 1500
+// About 14 frames a second: smooth hops without keeping the terminal busy.
+const ANIMATION_MS = 70
+const STAGE_ROWS = 16
 
 const moodAtom = atom({ plugin: 'monkey-mate', key: 'mood' } as const, initialMood(0))
 const ledgerAtom = atom({ plugin: 'monkey-mate', key: 'ledger' } as const, emptyLedger())
@@ -19,7 +23,6 @@ const bubbleAtom = atom({ plugin: 'monkey-mate', key: 'bubble' } as const, {
   text: 'Hi! I am Momo 🐒 your coding buddy.',
   lines: [],
 } as Bubble)
-const frameAtom = atom({ plugin: 'monkey-mate', key: 'frame' } as const, 0)
 
 const ALERTS: readonly Signal[] = ['risky', 'repeat-error', 'test-fail']
 
@@ -35,9 +38,30 @@ const say = async ($: EngineInterface, text: string, lines: string[] = []) => {
   await update($, bubbleAtom, () => ({ text, lines }))
 }
 
+// The animation runs many times a second, so it reads this copy of the mood rather than the state.
+let lastMood: Mood = initialMood(0)
+let actor = initialActor()
+let stage: Stage = { columns: 36, rows: STAGE_ROWS }
+let cells = ''
+
 const refreshStatus = async ($: EngineInterface) => {
-  const emotion = emotionOf(await read($, moodAtom), await $.clock.now())
+  lastMood = await read($, moodAtom)
+  const emotion = emotionOf(lastMood, await $.clock.now())
   $.ui.status(`🐒 ${EMOJI[emotion]} ${emotion}`)
+}
+
+const drawStage = (emotion: Emotion): string => encodeCells(paint(actor, emotion, stage), stage)
+
+/** One frame: Momo moves, and the pane's stage is repainted when anything changed. */
+async function animate($: EngineInterface) {
+  const emotion = emotionOf(lastMood, await $.clock.now())
+  actor = step(actor, emotion, stage, Math.random)
+  const next = drawStage(emotion)
+  if (next === cells) {
+    return
+  }
+  cells = next
+  await $.ui.blit({ requestId: PANE, key: STAGE_KEY, cells, columns: stage.columns, rows: stage.rows })
 }
 
 const feel = async ($: EngineInterface, signals: readonly Signal[], errorText?: string) => {
@@ -45,6 +69,8 @@ const feel = async ($: EngineInterface, signals: readonly Signal[], errorText?: 
   const before = await read($, moodAtom)
   const resolved = signals.map(signal => resolveSignal(before, signal, errorText))
   await update($, moodAtom, mood => signals.reduce((next, signal) => applySignal(next, signal, now, errorText), mood))
+  // Momo reacts at once: a happy leap, a worried shuffle or an angry stomp on the next frame.
+  actor = { ...actor, restTicks: 0 }
 
   const signal = loudest(resolved) ?? resolved.find(one => one === 'frustration' || one === 'praise')
   const line = signal ? reaction(signal, said) : null
@@ -66,7 +92,7 @@ export const register: Register = on => {
     })
     const now = await $.clock.now()
     await update($, moodAtom, mood => (mood.lastEventAt === 0 ? initialMood(now) : mood))
-    $.clock.every(TICK_MS, () => void update($, frameAtom, frame => (frame + 1) % 1000))
+    $.clock.every(ANIMATION_MS, () => void animate($).catch(() => undefined))
     void $.ui.open({ id: PANE, title: 'Momo 🐒' })
     await refreshStatus($)
 
@@ -180,13 +206,16 @@ export const register: Register = on => {
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const mood = await read($, moodAtom)
+    const emotion = emotionOf(mood, await $.clock.now())
+    const columns = Math.max(20, Math.min(48, e.props.bodyColumns - 2))
+    if (columns !== stage.columns) {
+      stage = { columns, rows: STAGE_ROWS }
+      actor = { ...actor, x: Math.min(actor.x, Math.max(0, columns - 18)) }
+    }
+    lastMood = mood
+    cells = drawStage(emotion)
 
-    return pane($, e, {
-      emotion: emotionOf(mood, await $.clock.now()),
-      mood,
-      bubble: await read($, bubbleAtom),
-      frame: await read($, frameAtom),
-    })
+    return pane($, e, { emotion, mood, bubble: await read($, bubbleAtom) }, { stage, cells })
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
@@ -200,7 +229,6 @@ export const register: Register = on => {
       emotion: emotionOf(mood, await $.clock.now()),
       mood,
       bubble: await read($, bubbleAtom),
-      frame: 0,
     })
   })
 }
