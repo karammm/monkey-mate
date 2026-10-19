@@ -123,7 +123,10 @@ npm start
 
 - Momo walks along the top of your Dock or taskbar, leaps around, and sometimes perches high up the screen.
 - **Drag** him anywhere and he sits right where you drop him. **Click** him to pet him.
-- He shows what the plugin says in a speech bubble, and his mood follows your Claude Code session.
+- He talks in frosted **liquid-glass** bubbles (the system's own glass material) and thinks out loud while
+  Claude works. His mood follows your Claude Code session.
+- While you **type**, he politely covers his eyes 🙈 and peeks out when you stop. While you use the mouse he
+  keeps still. He only checks how long ago you last used the keyboard or mouse; nothing you type is ever read.
 - Clicks anywhere else go straight through to your apps. Quit from the 🐒 menu-bar or tray icon.
 
 The plugin connects by itself (run `/momo desktop` to check). The two talk over `127.0.0.1:47321` only; nothing

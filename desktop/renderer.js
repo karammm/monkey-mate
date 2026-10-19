@@ -38,6 +38,8 @@ const state = {
   work: null,
   // True while you type or move the mouse: Momo holds still.
   isUserBusy: false,
+  // True while you type: Momo covers his eyes.
+  isTyping: false,
 }
 
 // How the ears and tail move per mood: ear angle (radians, up is positive), wiggle size and speed (Hz).
@@ -267,12 +269,24 @@ function draw() {
     ctx.globalAlpha = 1
   }
 
+  // Speech and thoughts show in the glass bubble window, which follows Momo's head.
+  let message = null
   if (state.bubble && Date.now() < state.bubble.until) {
-    drawBubble(state.bubble.text, momo.x, top + 8)
+    message = { text: state.bubble.text, kind: 'speech' }
   } else if (state.work) {
     const dots = '.'.repeat(1 + (Math.floor(Date.now() / 400) % 3))
-    drawBubble(`💭 ${state.work.text}${dots}`, momo.x, top + 8, true)
+    message = { text: `💭 ${state.work.text}${dots}`, kind: 'thought' }
   }
+  say(message, momo.x, top + 10)
+}
+
+let lastSaid = { text: null, x: 0, y: 0 }
+function say(message, x, y) {
+  const text = message?.text ?? null
+  const hasMoved = Math.abs(x - lastSaid.x) >= 1 || Math.abs(y - lastSaid.y) >= 1
+  if (text === lastSaid.text && (text === null || !hasMoved)) return
+  lastSaid = { text, x, y }
+  window.monkeyMate.say({ text, kind: message?.kind ?? 'speech', x: Math.round(x), y: Math.round(y) })
 }
 
 /** Momo in sprite pixels: tail, ears and body, the ears and tail swinging around their pivots. */
@@ -322,58 +336,6 @@ function drawMomo(mood) {
   swing(sprites.ear, RIG.ear, earAngle(1, 0), false)
   swing(sprites.ear, RIG.ear, earAngle(0, 0.8), true)
   if (body?.complete) ctx.drawImage(body, 0, 0)
-}
-
-function drawBubble(text, x, bottom, isThought = false) {
-  ctx.font = '500 14px -apple-system, "Segoe UI", sans-serif'
-  const lines = wrap(text, 240)
-  const lineHeight = 19
-  const w = Math.max(...lines.map(line => ctx.measureText(line).width)) + 24
-  const h = lines.length * lineHeight + 16
-  const left = Math.max(8, Math.min(window.innerWidth - w - 8, x - w / 2))
-  const top = Math.max(8, bottom - h - 14)
-
-  ctx.fillStyle = isThought ? 'rgba(240, 244, 255, 0.97)' : 'rgba(255, 252, 246, 0.97)'
-  ctx.strokeStyle = 'rgba(120, 105, 95, 0.55)'
-  ctx.lineWidth = 1.5
-  ctx.beginPath()
-  ctx.roundRect(left, top, w, h, 12)
-  ctx.fill()
-  ctx.stroke()
-  // The tail, pointing at Momo: a little point for speech, two puffs for a thought.
-  const tail = Math.max(left + 16, Math.min(left + w - 16, x))
-  ctx.beginPath()
-  if (isThought) {
-    ctx.arc(tail, top + h + 6, 4, 0, Math.PI * 2)
-    ctx.moveTo(tail + 4, top + h + 14)
-    ctx.arc(tail + 2, top + h + 14, 2.5, 0, Math.PI * 2)
-    ctx.fill()
-    ctx.stroke()
-  } else {
-    ctx.moveTo(tail - 7, top + h - 1)
-    ctx.lineTo(tail, top + h + 10)
-    ctx.lineTo(tail + 7, top + h - 1)
-    ctx.fill()
-  }
-
-  ctx.fillStyle = '#2b2622'
-  lines.forEach((line, index) => ctx.fillText(line, left + 12, top + 22 + index * lineHeight))
-}
-
-function wrap(text, maxWidth) {
-  const lines = []
-  let line = ''
-  for (const word of text.split(/\s+/)) {
-    const next = line ? `${line} ${word}` : word
-    if (ctx.measureText(next).width > maxWidth && line) {
-      lines.push(line)
-      line = word
-    } else {
-      line = next
-    }
-  }
-  if (line) lines.push(line)
-  return lines.slice(0, 4)
 }
 
 function isOverMomo(x, y) {
@@ -445,6 +407,16 @@ window.addEventListener('mouseup', () => {
   if (!moved) pet()
 })
 
+// While you type, Momo politely covers his eyes; when you stop, he peeks out again.
+window.monkeyMate.onTyping(typing => {
+  state.isTyping = typing
+  if (typing) {
+    gesture(['cover', 10 * 60 * 1000])
+    if (!state.bubble || Date.now() > state.bubble.until) state.bubble = { text: '🙈 Not peeking!', until: Date.now() + 2200 }
+  } else if (currentGesture() === 'cover') {
+    gesture(['peek', 900])
+  }
+})
 window.monkeyMate.onUserBusy(busy => {
   state.isUserBusy = busy
   // When you stop, he waits a moment before moving again.

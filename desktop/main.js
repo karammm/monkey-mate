@@ -9,6 +9,7 @@ const PORT = 47321
 
 let win = null
 let tray = null
+let bubble = null
 
 if (!app.requestSingleInstanceLock()) {
   app.quit()
@@ -49,6 +50,69 @@ function createWindow() {
   screen.on('display-metrics-changed', sendFloor)
 }
 
+// Momo's speech and thought bubbles: a small window of the system's frosted "liquid glass"
+// (vibrancy on macOS, acrylic on Windows) that follows him around.
+function createBubble() {
+  bubble = new BrowserWindow({
+    width: 120,
+    height: 40,
+    show: false,
+    transparent: true,
+    frame: false,
+    resizable: false,
+    movable: false,
+    focusable: false,
+    skipTaskbar: true,
+    hasShadow: true,
+    roundedCorners: true,
+    alwaysOnTop: true,
+    vibrancy: 'popover',
+    visualEffectState: 'active',
+    backgroundMaterial: 'acrylic',
+    webPreferences: { preload: path.join(__dirname, 'bubble-preload.js'), backgroundThrottling: false },
+  })
+  // Above Momo's own layer, and never in the way of clicks.
+  bubble.setAlwaysOnTop(true, 'screen-saver', 1)
+  bubble.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  bubble.setIgnoreMouseEvents(true)
+  bubble.loadFile(path.join(__dirname, 'bubble.html'))
+}
+
+// What the bubble shows and where: anchor is the point just above Momo's head, in screen coordinates.
+const said = { text: null, kind: 'speech', anchor: [0, 0], size: [0, 0] }
+
+function placeBubble() {
+  if (!bubble || said.text === null) return
+  const [width, height] = said.size
+  const { workArea } = screen.getPrimaryDisplay()
+  const x = Math.round(Math.max(workArea.x + 8, Math.min(workArea.x + workArea.width - width - 8, said.anchor[0] - width / 2)))
+  const y = Math.round(Math.max(workArea.y + 8, said.anchor[1] - height - 6))
+  bubble.setBounds({ x, y, width, height })
+}
+
+ipcMain.on('bubble', (_event, message) => {
+  const offset = screen.getPrimaryDisplay().bounds
+  said.anchor = [offset.x + message.x, offset.y + message.y]
+  if (message.text === null) {
+    said.text = null
+    bubble?.hide()
+    return
+  }
+  if (message.text !== said.text || message.kind !== said.kind) {
+    said.text = message.text
+    said.kind = message.kind
+    bubble?.webContents.send('show', { text: message.text, kind: message.kind })
+    return
+  }
+  placeBubble()
+})
+
+ipcMain.on('bubble-size', (_event, width, height) => {
+  said.size = [width, height]
+  placeBubble()
+  if (said.text !== null && !bubble?.isVisible()) bubble?.showInactive()
+})
+
 function createTray() {
   const icon = nativeImage.createFromPath(path.join(__dirname, 'sprites', 'tray.png'))
   tray = new Tray(icon.resize({ height: 18 }))
@@ -80,7 +144,7 @@ function startServer() {
     // Where Momo is and how he feels, for checking that he moves.
     if (request.method === 'GET' && request.url === '/status') {
       win?.webContents
-        .executeJavaScript('JSON.stringify({ x: Math.round(momo.x), y: Math.round(momo.y), mode: momo.mode, emotion: emotion(), floor: state.floor, isUserBusy: state.isUserBusy, hands: currentGesture() })')
+        .executeJavaScript('JSON.stringify({ x: Math.round(momo.x), y: Math.round(momo.y), mode: momo.mode, emotion: emotion(), floor: state.floor, isUserBusy: state.isUserBusy, hands: currentGesture(), isTyping: state.isTyping })')
         .then(json => response.end(json))
         .catch(() => response.end('{}'))
       return
@@ -125,15 +189,28 @@ ipcMain.on('hover', (_event, isOverMomo) => {
 })
 
 // While you are typing or using the mouse anywhere, Momo keeps still so he never distracts you.
-// The system's idle time counts whole seconds since the last keyboard or mouse input.
+// The system's idle time counts whole seconds since the last keyboard or mouse input; input while the
+// pointer stays put is taken as typing, and then Momo covers his eyes. Nothing you type is ever read.
 const QUIET_AFTER_SECONDS = 3
 let isUserBusy = false
+let isTyping = false
+let lastCursor = { x: 0, y: 0 }
+let lastCursorMove = 0
 function watchInput() {
   setInterval(() => {
-    const busy = powerMonitor.getSystemIdleTime() < QUIET_AFTER_SECONDS
+    const idle = powerMonitor.getSystemIdleTime()
+    const cursor = screen.getCursorScreenPoint()
+    if (cursor.x !== lastCursor.x || cursor.y !== lastCursor.y) lastCursorMove = Date.now()
+    lastCursor = cursor
+    const busy = idle < QUIET_AFTER_SECONDS
+    const typing = idle < 2 && Date.now() - lastCursorMove > 1500
     if (busy !== isUserBusy) {
       isUserBusy = busy
       win?.webContents.send('user-busy', busy)
+    }
+    if (typing !== isTyping) {
+      isTyping = typing
+      win?.webContents.send('typing', typing)
     }
   }, 250)
 }
@@ -141,6 +218,7 @@ function watchInput() {
 app.whenReady().then(() => {
   if (process.platform === 'darwin') app.dock?.hide()
   createWindow()
+  createBubble()
   createTray()
   startServer()
   watchInput()

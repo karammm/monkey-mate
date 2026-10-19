@@ -1,0 +1,59 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'" />
+    <title>Momo says</title>
+    <style>
+      /* Liquid glass: the window itself is the system's frosted material; this adds the sheen, edge and text. */
+      :root {
+        --text: #1d1b22;
+        --shine: rgba(255, 255, 255, 0.55);
+        --edge: rgba(255, 255, 255, 0.7);
+        --tint: rgba(255, 255, 255, 0.16);
+        --thought: rgba(170, 195, 255, 0.16);
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --text: #f4f2f7;
+          --shine: rgba(255, 255, 255, 0.22);
+          --edge: rgba(255, 255, 255, 0.32);
+          --tint: rgba(255, 255, 255, 0.06);
+          --thought: rgba(140, 170, 255, 0.12);
+        }
+      }
+      html, body { margin: 0; background: transparent; overflow: hidden; }
+      /* Wide enough to lay the text out at its natural size; the window is then fitted to the bubble. */
+      body { width: 320px; }
+      body { font: 500 14px/1.4 -apple-system, "SF Pro Text", "Segoe UI Variable", "Segoe UI", sans-serif; color: var(--text); }
+      .glass {
+        position: relative;
+        display: inline-block;
+        max-width: 260px;
+        padding: 9px 15px 10px;
+        /* Matches the corner rounding of the frosted window behind it. */
+        border-radius: 14px;
+        background: linear-gradient(180deg, var(--tint), transparent 70%);
+        box-shadow: inset 0 1px 0 var(--edge), inset 0 -1px 0 rgba(255, 255, 255, 0.12), inset 0 0 0 0.5px var(--edge);
+        -webkit-font-smoothing: antialiased;
+        white-space: pre-wrap;
+      }
+      .glass.thought { background: linear-gradient(180deg, var(--thought), transparent 75%); }
+      /* The specular highlight across the top, like light on curved glass. */
+      .glass::before {
+        content: "";
+        position: absolute;
+        inset: 1px 10% auto;
+        height: 42%;
+        border-radius: 12px 12px 40% 40%;
+        background: linear-gradient(180deg, var(--shine), transparent);
+        opacity: 0.55;
+        pointer-events: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="glass" id="glass"></div>
+    <script src="bubble.js"></script>
+  </body>
+</html>
