@@ -3,10 +3,10 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { Bubble, Emotion, Mood } from '../types'
 import { EMOJI } from './art'
-import { closeTurn, describeSession, describeTurn, emptyLedger, hadTrouble, record } from './ledger'
+import { closeTurn, describeSession, describeTurn, emptyLedger, hadTrouble, record, summarizeTurn } from './ledger'
 import { applySignal, emotionOf, initialMood, resolveSignal, settle } from './mood'
-import { activityLine, loudest, moodLine, reaction } from './phrases'
-import { classifyPrompt, classifyTool, errorKey } from './signals'
+import { activityLine, doneLine, loudest, moodLine, reaction } from './phrases'
+import { classifyPrompt, classifyTool, errorKey, isTestCommand } from './signals'
 import type { Observation, Signal } from './signals'
 import { SPRITE_WIDTH } from './sprite'
 import { encodeCells, initialActor, paint, step } from './stage'
@@ -168,7 +168,7 @@ export const register: Register = on => {
     const signals = classifyPrompt(e.text)
     if (signals.length > 0) {
       await feel($, signals)
-      await showActivity($, 'Claude is thinking')
+      await showActivity($, 'Thinking')
     }
 
     return next(e)
@@ -206,6 +206,15 @@ export const register: Register = on => {
     await update($, ledgerAtom, ledger => record(ledger, observation, warning))
     await feel($, signals, isFailure ? errorKey(observation.text) : undefined)
 
+    // Then say what changed, in plain words: "Changed app.ts ✓", "Tests pass ✅".
+    if (e.agentId === undefined) {
+      const isTest = observation.command !== undefined && isTestCommand(observation.command)
+      const done = doneLine(observation.tool, { ...observation, testsPassed: isTest ? !signals.includes('test-fail') : undefined })
+      if (done !== null) {
+        await showActivity($, done)
+      }
+    }
+
     return ran
   }).catch(($, e, next) => next(e))
 
@@ -227,8 +236,7 @@ export const register: Register = on => {
     await update($, moodAtom, mood => settle(mood, isTrouble))
 
     if (!isEmpty) {
-      const emotion = emotionOf(await read($, moodAtom), await $.clock.now())
-      await say($, isTrouble ? 'Hmm, this turn had problems:' : `${moodLine(emotion, said)} This turn:`, lines)
+      await say($, summarizeTurn(current), lines)
     }
     await refreshStatus($)
 

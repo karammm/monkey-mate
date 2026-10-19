@@ -2,3 +2,4 @@
 *.log
 .claude-plugin/types/
 node_modules/
+desktop/native/caret

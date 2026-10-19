@@ -6,7 +6,7 @@ type Face = { brow: string; eyes: string; mouth: string; extra?: string }
 
 const FACES: Record<Emotion, Face> = {
   happy: { brow: '       ', eyes: ' ^   ^ ', mouth: ' \\___/ ' },
-  proud: { brow: '   *   ', eyes: '[■]-[■]', mouth: ' \\___/ ' },
+  proud: { brow: '   *   ', eyes: ' O   O ', mouth: ' \\___/ ' },
   calm: { brow: '       ', eyes: ' o   o ', mouth: '  ---  ' },
   curious: { brow: '     ? ', eyes: ' o   O ', mouth: '   o   ' },
   worried: { brow: ' /   \\ ', eyes: ' o   o ', mouth: '  ~~~  ', extra: '  ;' },
@@ -38,7 +38,7 @@ export const WIDTH = 22
 
 export const EMOJI: Record<Emotion, string> = {
   happy: '😄',
-  proud: '😎',
+  proud: '🤩',
   calm: '🙂',
   curious: '🤔',
   worried: '😟',

@@ -91,6 +91,9 @@ const height = () => 160 * scale
 
 // Hand gestures, played on the floor or a perch: cover his eyes, peek, wave, clap, think.
 const GESTURE_FRAMES = {
+  // Played once over their step: the paws glide up to his eyes, or back down.
+  raise: ['lift-1', 'lift-2', 'lift-3'],
+  lower: ['lift-3', 'lift-2', 'lift-1'],
   cover: ['cover'],
   peek: ['peek'],
   think: ['think'],
@@ -98,10 +101,18 @@ const GESTURE_FRAMES = {
   clap: ['clap-a', 'clap-b'],
 }
 
+const ONCE = new Set(['raise', 'lower'])
+
 /** Plays gestures in order, e.g. gesture(['cover', 2200], ['peek', 1200]). */
 function gesture(...steps) {
   let at = Date.now()
-  momo.gestures = steps.map(([name, ms]) => ({ name, until: (at += ms) }))
+  momo.gestures = steps.map(([name, ms]) => ({ name, start: at, until: (at += ms) }))
+}
+
+/** Covers his eyes smoothly (paws glide up), holding them there for `ms`, then whatever follows. */
+function coverEyes(ms, ...after) {
+  const isCovered = currentGesture() === 'cover' || currentGesture() === 'peek'
+  gesture(...(isCovered ? [] : [['raise', 200]]), ['cover', ms], ...after)
 }
 
 function currentGesture() {
@@ -147,11 +158,18 @@ function emotion() {
 
 function leap(plan) {
   const span = window.innerWidth * plan.reach
-  const targetX = Math.max(width() / 2, Math.min(window.innerWidth - width() / 2, momo.x + (Math.random() * 2 - 1) * span))
-  const isPerch = Math.random() < plan.perch
+  const targetX = momo.x + (Math.random() * 2 - 1) * span
   // A perch is a spot somewhere up the screen: on top of a window, the edge of the terminal, anywhere.
-  const targetY = isPerch ? between([window.innerHeight * 0.2, state.floor - 160]) : state.floor
-  const rise = Math.max(between(plan.height), momo.y - targetY + 40)
+  const targetY = Math.random() < plan.perch ? between([window.innerHeight * 0.2, state.floor - 160]) : state.floor
+  leapTo(targetX, targetY, between(plan.height))
+}
+
+/** Jumps to land with his feet at (x, y); a spot above the floor is a perch. */
+function leapTo(x, y, height = 60) {
+  const targetX = Math.max(width() / 2, Math.min(window.innerWidth - width() / 2, x))
+  const targetY = Math.min(state.floor, y)
+  const isPerch = targetY < state.floor - 5
+  const rise = Math.max(height, momo.y - targetY + 40)
   momo.vy = -Math.sqrt(2 * GRAVITY * rise)
   const up = -momo.vy / GRAVITY
   const down = Math.sqrt((2 * Math.max(1, targetY - (momo.y - rise))) / GRAVITY)
@@ -201,7 +219,7 @@ function step() {
     if (state.work && mood !== 'sleepy' && !currentGesture() && momo.rest > 15) gesture(['think', momo.rest * 16])
     // Now and then a calm Momo plays peekaboo.
     if (mood === 'calm' && !state.work && !currentGesture() && Math.random() < 0.0004) {
-      gesture(['cover', 1400], ['peek', 700], ['cover', 500])
+      coverEyes(1400, ['peek', 700], ['cover', 500], ['lower', 240])
     }
     // He stays put while his hands are busy; thinking still counts down to his next hop.
     if (currentGesture()) {
@@ -274,8 +292,10 @@ function draw() {
   if (state.bubble && Date.now() < state.bubble.until) {
     message = { text: state.bubble.text, kind: 'speech' }
   } else if (state.work) {
-    const dots = '.'.repeat(1 + (Math.floor(Date.now() / 400) % 3))
-    message = { text: `💭 ${state.work.text}${dots}`, kind: 'thought' }
+    // Steps in progress get animated dots; finished ones ("Changed app.ts ✓") do not.
+    const isDone = /[✓✅❌]$/u.test(state.work.text)
+    const dots = isDone ? '' : '.'.repeat(1 + (Math.floor(Date.now() / 400) % 3))
+    message = { text: `${state.work.text}${dots}`, kind: 'thought' }
   }
   say(message, momo.x, top + 10)
 }
@@ -297,7 +317,10 @@ function drawMomo(mood) {
   let body = sprites[`${mood}-${pose}-${blink}`] ?? sprites[`${mood}-${pose}-0`]
   if (hands) {
     const frames = GESTURE_FRAMES[hands]
-    const frame = frames[Math.floor(Date.now() / (hands === 'clap' ? 160 : 260)) % frames.length]
+    const step = momo.gestures[0]
+    const frame = ONCE.has(hands)
+      ? frames[Math.min(frames.length - 1, Math.floor(((Date.now() - step.start) / (step.until - step.start)) * frames.length))]
+      : frames[Math.floor(Date.now() / (hands === 'clap' ? 160 : 260)) % frames.length]
     body = sprites[`${mood}-g-${frame}`] ?? body
   }
   const t = performance.now() / 1000
@@ -361,7 +384,7 @@ function react(emotion, text, bubbleMs = 7000) {
   state.lastNews = Date.now()
   if (text) state.bubble = { text, until: Date.now() + bubbleMs }
   // Covering his eyes is one quiet move, so it happens even while you are busy; waving and clapping wait.
-  if (emotion === 'worried') return gesture(['cover', 2000], ['peek', 1200])
+  if (emotion === 'worried') return coverEyes(2000, ['peek', 1200], ['lower', 240])
   if (state.isUserBusy) return
   else if ((emotion === 'happy' || emotion === 'proud') && text) gesture(['clap', 1600])
   else if (emotion === 'curious' && before !== 'curious') gesture(['wave', 1400])
@@ -407,16 +430,38 @@ window.addEventListener('mouseup', () => {
   if (!moved) pet()
 })
 
-// While you type, Momo politely covers his eyes; when you stop, he peeks out again.
-window.monkeyMate.onTyping(typing => {
+// While you type, Momo politely covers his eyes; when you stop, he peeks out and lowers his paws.
+let lastNotPeeking = 0
+window.monkeyMate.onTyping(({ typing, caret }) => {
+  const wasTyping = state.isTyping
   state.isTyping = typing
-  if (typing) {
-    gesture(['cover', 10 * 60 * 1000])
-    if (!state.bubble || Date.now() > state.bubble.until) state.bubble = { text: '🙈 Not peeking!', until: Date.now() + 2200 }
-  } else if (currentGesture() === 'cover') {
-    gesture(['peek', 900])
+  if (!typing) {
+    if (currentGesture() === 'cover' || currentGesture() === 'raise') gesture(['peek', 700], ['lower', 240])
+    return
+  }
+  if (caret) sitBeside(caret)
+  if (!wasTyping) {
+    coverEyes(10 * 60 * 1000)
+    if (Date.now() - lastNotPeeking > 60_000 && (!state.bubble || Date.now() > state.bubble.until)) {
+      lastNotPeeking = Date.now()
+      state.bubble = { text: '🙈 Not peeking!', until: Date.now() + 2200 }
+    }
   }
 })
+
+/** Knowing where you type, Momo sits just beside it (never on top of your text), facing it. */
+function sitBeside(caret) {
+  // Without an exact caret (many terminals) the field's bottom edge is where the typing line usually is.
+  const line = caret.exact ? caret : { x: caret.x + caret.w - 24, y: caret.y + caret.h - 34, w: 0, h: 24 }
+  const gap = 24 + width() / 2
+  const right = line.x + line.w + gap
+  const x = right + width() / 2 < window.innerWidth ? right : line.x - gap
+  const y = line.y + line.h + 6
+  if (Math.hypot(momo.x - x, momo.y - y) < 120 || momo.mode === 'air' || momo.mode === 'dragged') return
+  // One quiet hop over there, then he stays put while you type.
+  momo.facingLeft = x > line.x
+  leapTo(x, y, 30)
+}
 window.monkeyMate.onUserBusy(busy => {
   state.isUserBusy = busy
   // When you stop, he waits a moment before moving again.

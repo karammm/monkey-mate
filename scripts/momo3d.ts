@@ -44,7 +44,6 @@ const COLORS = {
   blush: hex(0xff9aa8),
   angryBlush: hex(0xff5a5a),
   toe: hex(0xf7c2b6),
-  shades: hex(0x15151c),
 }
 
 function ellipsoid(p: V, c: V, r: V): number {
@@ -84,9 +83,20 @@ type Part = 'fur' | 'arm' | 'ear' | 'eye' | 'nose' | 'foot'
 export type Layer = 'all' | 'body' | 'ear' | 'tail'
 
 /** What Momo does with his hands (Momo Desktop only; the terminal sprites keep his arms down). */
-export type Gesture = 'none' | 'cover' | 'peek' | 'wave-a' | 'wave-b' | 'clap-a' | 'clap-b' | 'think'
+export type Gesture =
+  | 'none'
+  | 'lift-1'
+  | 'lift-2'
+  | 'lift-3'
+  | 'cover'
+  | 'peek'
+  | 'wave-a'
+  | 'wave-b'
+  | 'clap-a'
+  | 'clap-b'
+  | 'think'
 
-export const GESTURES: Gesture[] = ['cover', 'peek', 'wave-a', 'wave-b', 'clap-a', 'clap-b', 'think']
+export const GESTURES: Gesture[] = ['lift-1', 'lift-2', 'lift-3', 'cover', 'peek', 'wave-a', 'wave-b', 'clap-a', 'clap-b', 'think']
 
 type Model = {
   pose: Pose
@@ -104,9 +114,21 @@ const LIFTED: Arm = { shoulder: [0.3, -0.34, 0.08], elbow: [0.45, -0.16, 0.14], 
 // Paws over the eyes: the arms come up in front of the cheeks.
 const COVER: Arm = { shoulder: [0.3, -0.34, 0.14], elbow: [0.52, -0.08, 0.46], paw: [0.27, 0.32, 0.7] }
 
+const lerp = (a: V, b: V, t: number): V => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]
+/** An arm part of the way from resting to covering his eyes, for smooth raising and lowering. */
+const lifted = (t: number): Arm => ({
+  shoulder: lerp(REST.shoulder, COVER.shoulder, t),
+  // The elbow swings out first, so the paw rises in front of the body rather than through it.
+  elbow: lerp(REST.elbow, COVER.elbow, Math.min(1, t * 1.4)),
+  paw: lerp(REST.paw, COVER.paw, t),
+})
+
 /** Each gesture's arms: [right, left], both written for the right side and mirrored for the left. */
 const ARMS: Record<Gesture, [Arm, Arm]> = {
   none: [REST, REST],
+  'lift-1': [lifted(0.28), lifted(0.28)],
+  'lift-2': [lifted(0.55), lifted(0.55)],
+  'lift-3': [lifted(0.8), lifted(0.8)],
   cover: [COVER, COVER],
   peek: [COVER, { shoulder: COVER.shoulder, elbow: [0.48, -0.2, 0.42], paw: [0.3, 0.1, 0.66] }],
   'wave-a': [{ shoulder: [0.3, -0.32, 0.12], elbow: [0.66, -0.16, 0.26], paw: [0.9, 0.14, 0.3] }, REST],
@@ -125,9 +147,9 @@ const ARMS: Record<Gesture, [Arm, Arm]> = {
 function armDistance(q: V, arm: Arm): number {
   const upper = capsule(q, arm.shoulder, arm.elbow, 0.105)
   const lower = capsule(q, arm.elbow, arm.paw, 0.1)
-  // Paws over the eyes are big enough to hide them completely.
-  const isOverEye = arm.paw[1] > 0.25
-  const paw = ellipsoid(q, arm.paw, isOverEye ? [0.15, 0.14, 0.09] : [0.11, 0.1, 0.085])
+  // Paws grow as they come up in front of the face, so over the eyes they hide them completely.
+  const toFace = clamp((arm.paw[2] - 0.28) / 0.42) * clamp((arm.paw[1] + 0.64) / 0.96)
+  const paw = ellipsoid(q, arm.paw, [0.11 + 0.04 * toFace, 0.1 + 0.04 * toFace, 0.085 + 0.005 * toFace])
   return smin(smin(upper, lower, 0.05), paw, 0.05)
 }
 
@@ -230,14 +252,14 @@ function occlusion(p: V, n: V, m: Model): number {
 }
 
 type Face = {
-  eyes: 'open' | 'blink' | 'happy' | 'angry' | 'worried' | 'shades' | 'wide'
+  eyes: 'open' | 'blink' | 'happy' | 'angry' | 'worried' | 'wide'
   mouth: 'smile' | 'grin' | 'flat' | 'small' | 'open'
   isFlushed?: boolean
 }
 
 const FACES: Record<Emotion, Face> = {
   happy: { eyes: 'happy', mouth: 'grin' },
-  proud: { eyes: 'shades', mouth: 'smile' },
+  proud: { eyes: 'wide', mouth: 'grin' },
   calm: { eyes: 'open', mouth: 'smile' },
   curious: { eyes: 'wide', mouth: 'small' },
   worried: { eyes: 'worried', mouth: 'small' },
@@ -280,15 +302,6 @@ function albedo(p: V, part: Part, face: Face, m: Model, isBlinking: boolean): { 
       return { color: mix(COLORS.innerEarDeep, COLORS.innerEar, smoothstep(0.1, 0.9, inner)), spec: 0.05 }
     }
     return { color: COLORS.fur, spec: 0 }
-  }
-
-  if (face.eyes === 'shades' && p[2] > 0.25) {
-    const lens = Math.max(Math.abs(ax - EYE_X) / 0.22, Math.abs(p[1] - EYE_Y + 0.01) / 0.15)
-    const bridge = ax < 0.08 && Math.abs(p[1] - EYE_Y - 0.03) < 0.03
-    if (lens < 1 || bridge) {
-      const shine = Math.abs(p[1] - EYE_Y - 0.06 + (ax - EYE_X) * 0.6) < 0.025 && lens < 0.85
-      return { color: shine ? hex(0x9aa3b8) : COLORS.shades, spec: 0.9 }
-    }
   }
 
   if (part === 'eye') {

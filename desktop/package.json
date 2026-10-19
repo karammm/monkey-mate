@@ -6,7 +6,9 @@
   "main": "main.js",
   "license": "MIT",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "start:mac": "open -n node_modules/electron/dist/Electron.app --args \"$PWD\"",
+    "postinstall": "node build-native.js"
   },
   "devDependencies": {
     "electron": "33.2.1"

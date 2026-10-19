@@ -125,6 +125,27 @@ export const describeTurn = (turn: TurnLog | null): string[] => {
   return lines
 }
 
+/** The whole turn in one short, plain sentence, for Momo's bubble. */
+export const summarizeTurn = (turn: TurnLog): string => {
+  const files = Object.keys(turn.files).map(basename)
+  const changed =
+    files.length === 0
+      ? ''
+      : files.length <= 2
+        ? `Changed ${files.join(' and ')}`
+        : `Changed ${files.length} files`
+  const lastTest = turn.tests[turn.tests.length - 1]
+  const tests = lastTest === undefined ? '' : lastTest.isOk ? 'tests pass' : 'tests fail'
+  const failed = turn.commands.filter(command => !command.isOk).length
+  const parts = [changed, tests].filter(Boolean)
+
+  if (lastTest !== undefined && !lastTest.isOk) return `Not done yet ❌ ${parts.join(', ')}`
+  if (failed > 0 && files.length === 0) return `Something did not work ❌`
+  if (parts.length === 0) return 'Done ✅ No changes'
+
+  return `Done ✅ ${parts.join(', ')}`
+}
+
 export const describeSession = (ledger: Ledger): string[] => {
   const { session } = ledger
   const files = Object.values(session.files)

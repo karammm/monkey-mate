@@ -2,6 +2,8 @@
 // The monkey-mate plugin tells it how Momo feels by POSTing to http://127.0.0.1:47321/mood.
 
 const { app, BrowserWindow, ipcMain, Menu, nativeImage, powerMonitor, screen, Tray } = require('electron')
+const { spawn } = require('node:child_process')
+const fs = require('node:fs')
 const http = require('node:http')
 const path = require('node:path')
 
@@ -113,6 +115,49 @@ ipcMain.on('bubble-size', (_event, width, height) => {
   if (said.text !== null && !bubble?.isVisible()) bubble?.showInactive()
 })
 
+// Where you are typing (macOS): the native/caret helper reads the text caret's position through the
+// Accessibility API, once you allow it from Momo's menu. It never reads any text.
+let caret = null
+const caretAnswers = []
+function startCaret() {
+  const helper = path.join(__dirname, 'native', 'caret')
+  if (process.platform !== 'darwin' || !fs.existsSync(helper)) return
+  caret = spawn(helper, [], { stdio: ['pipe', 'pipe', 'ignore'] })
+  let buffer = ''
+  caret.stdout.on('data', chunk => {
+    buffer += chunk
+    for (let end = buffer.indexOf('\n'); end >= 0; end = buffer.indexOf('\n')) {
+      const line = buffer.slice(0, end)
+      buffer = buffer.slice(end + 1)
+      let answer = null
+      try {
+        answer = JSON.parse(line)
+      } catch {}
+      caretAnswers.shift()?.(answer)
+    }
+  })
+  caret.on('exit', () => {
+    caret = null
+    while (caretAnswers.length > 0) caretAnswers.shift()(null)
+  })
+}
+
+function askCaret(command = 'where') {
+  return new Promise(resolve => {
+    if (!caret) return resolve(null)
+    caretAnswers.push(resolve)
+    caret.stdin.write(`${command}\n`)
+  })
+}
+
+/** The caret in window coordinates, or null when it is not known. */
+async function whereTyping() {
+  const answer = await askCaret()
+  if (!answer || typeof answer.x !== 'number') return null
+  const { bounds } = screen.getPrimaryDisplay()
+  return { x: answer.x - bounds.x, y: answer.y - bounds.y, w: answer.w, h: answer.h, exact: answer.exact === true }
+}
+
 function createTray() {
   const icon = nativeImage.createFromPath(path.join(__dirname, 'sprites', 'tray.png'))
   tray = new Tray(icon.resize({ height: 18 }))
@@ -122,6 +167,9 @@ function createTray() {
       { label: 'Pet Momo', click: () => win?.webContents.send('pet') },
       { label: 'Call Momo here', click: () => win?.webContents.send('summon') },
       { label: 'Show all his moods', click: () => win?.webContents.send('tour') },
+      ...(caret
+        ? [{ label: 'Let Momo see where I type…', click: () => askCaret('ask') }]
+        : []),
       {
         label: 'Size',
         submenu: ['small', 'medium', 'large'].map(size => ({
@@ -203,25 +251,38 @@ function watchInput() {
     if (cursor.x !== lastCursor.x || cursor.y !== lastCursor.y) lastCursorMove = Date.now()
     lastCursor = cursor
     const busy = idle < QUIET_AFTER_SECONDS
-    const typing = idle < 2 && Date.now() - lastCursorMove > 1500
+    const isPointerStill = Date.now() - lastCursorMove > 1500
+    // Short pauses between words do not count as stopping: typing ends after 3 quiet seconds or a mouse move.
+    const typing = isTyping ? idle < 3 && Date.now() - lastCursorMove > 400 : idle < 2 && isPointerStill
     if (busy !== isUserBusy) {
       isUserBusy = busy
       win?.webContents.send('user-busy', busy)
     }
     if (typing !== isTyping) {
       isTyping = typing
-      win?.webContents.send('typing', typing)
+      lastCaretCheck = 0
+      win?.webContents.send('typing', { typing, caret: null })
+    }
+    // While you type, tell Momo where every few seconds (and right away when you start).
+    if (isTyping && Date.now() - lastCaretCheck > 3000) {
+      lastCaretCheck = Date.now()
+      whereTyping().then(where => {
+        if (isTyping && where) win?.webContents.send('typing', { typing: true, caret: where })
+      })
     }
   }, 250)
 }
+let lastCaretCheck = 0
 
 app.whenReady().then(() => {
   if (process.platform === 'darwin') app.dock?.hide()
   createWindow()
   createBubble()
+  startCaret()
   createTray()
   startServer()
   watchInput()
 })
 
 app.on('window-all-closed', () => app.quit())
+app.on('will-quit', () => caret?.kill())

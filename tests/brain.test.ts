@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import { monkey, WIDTH } from '../hooks/art'
-import { closeTurn, describeSession, describeTurn, emptyLedger, hadTrouble, record } from '../hooks/ledger'
+import { closeTurn, describeSession, describeTurn, emptyLedger, hadTrouble, record, summarizeTurn } from '../hooks/ledger'
 import { applySignal, emotionOf, initialMood, settle, SLEEPY_AFTER_MS } from '../hooks/mood'
-import { activityLine } from '../hooks/phrases'
+import { activityLine, doneLine } from '../hooks/phrases'
 import { classifyPrompt, classifyTool, countTests, isRisky } from '../hooks/signals'
 import type { Observation } from '../hooks/signals'
 
@@ -47,12 +47,32 @@ describe('signals', () => {
 })
 
 describe('activity', () => {
-  test('says what Claude is busy with', () => {
-    expect(activityLine('Edit', undefined, '/repo/src/app.ts')).toBe('Claude is editing app.ts')
-    expect(activityLine('Write', undefined, 'C:\\repo\\notes.md')).toBe('Claude is editing notes.md')
-    expect(activityLine('Bash', 'npm test')).toBe('Claude is running npm test')
-    expect(activityLine('Grep')).toBe('Claude is reading the code')
-    expect(activityLine('mcp__github__create_pr')).toBe('Claude is using a connected tool')
+  test('says what is changing in plain words', () => {
+    expect(activityLine('Edit', undefined, '/repo/src/app.ts')).toBe('Changing app.ts')
+    expect(activityLine('Write', undefined, 'C:\\repo\\notes.md')).toBe('Writing notes.md')
+    expect(activityLine('Bash', 'npm test')).toBe('Testing the code')
+    expect(activityLine('Bash', 'git commit -m "fix"')).toBe('Saving the changes')
+    expect(activityLine('Bash', 'npm install react')).toBe('Installing packages')
+    expect(activityLine('Bash', 'ls -la')).toBe('Looking around')
+    expect(activityLine('Bash', 'python3 tool.py')).toBe('Running a command')
+    expect(activityLine('Grep')).toBe('Reading the code')
+    expect(activityLine('mcp__github__create_pr')).toBe('Using a connected app')
+  })
+
+  test('says what changed once a step is done', () => {
+    expect(doneLine('Edit', { isError: false, filePath: '/repo/app.ts' })).toBe('Changed app.ts ✓')
+    expect(doneLine('Write', { isError: false, isCreate: true, filePath: '/repo/new.ts' })).toBe('Made new.ts ✓')
+    expect(doneLine('Bash', { isError: false, testsPassed: true })).toBe('Tests pass ✅')
+    expect(doneLine('Bash', { isError: true, testsPassed: false })).toBe('Tests failed ❌')
+    expect(doneLine('Bash', { isError: true })).toBe('That did not work ❌')
+    expect(doneLine('Bash', { isError: false })).toBe(null)
+  })
+
+  test('sums up a turn in one short sentence', () => {
+    const turn = record(record(emptyLedger(), { tool: 'Edit', filePath: '/r/a.ts', isError: false, text: '' }), bash('npm test', '3 passed'))
+    expect(summarizeTurn(turn.current)).toBe('Done ✅ Changed a.ts, tests pass')
+    expect(summarizeTurn(emptyLedger().current)).toBe('Done ✅ No changes')
+    expect(summarizeTurn(record(emptyLedger(), bash('npm test', '1 failed', true)).current)).toBe('Not done yet ❌ tests fail')
   })
 })
 
