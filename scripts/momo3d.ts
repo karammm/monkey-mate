@@ -75,7 +75,7 @@ const rotZ = (p: V, c: V, angle: number): V => {
   return [c[0] + x * cos + y * sin, c[1] - x * sin + y * cos, p[2]]
 }
 
-type Part = 'fur' | 'ear' | 'eye' | 'nose' | 'foot'
+type Part = 'fur' | 'arm' | 'ear' | 'eye' | 'nose' | 'foot'
 
 /**
  * Which part of Momo to render: all of him, or the layers Momo Desktop animates on their own
@@ -83,11 +83,52 @@ type Part = 'fur' | 'ear' | 'eye' | 'nose' | 'foot'
  */
 export type Layer = 'all' | 'body' | 'ear' | 'tail'
 
+/** What Momo does with his hands (Momo Desktop only; the terminal sprites keep his arms down). */
+export type Gesture = 'none' | 'cover' | 'peek' | 'wave-a' | 'wave-b' | 'clap-a' | 'clap-b' | 'think'
+
+export const GESTURES: Gesture[] = ['cover', 'peek', 'wave-a', 'wave-b', 'clap-a', 'clap-b', 'think']
+
 type Model = {
   pose: Pose
   eyeRadius: number
   earTilt: number
   layer: Layer
+  gesture: Gesture
+}
+
+// An arm, on Momo's right side of the picture (x > 0): shoulder to elbow to paw.
+type Arm = { shoulder: V; elbow: V; paw: V }
+
+const REST: Arm = { shoulder: [0.3, -0.38, 0.12], elbow: [0.31, -0.5, 0.2], paw: [0.3, -0.64, 0.28] }
+const LIFTED: Arm = { shoulder: [0.3, -0.34, 0.08], elbow: [0.45, -0.16, 0.14], paw: [0.6, 0.02, 0.2] }
+// Paws over the eyes: the arms come up in front of the cheeks.
+const COVER: Arm = { shoulder: [0.3, -0.34, 0.14], elbow: [0.52, -0.08, 0.46], paw: [0.27, 0.32, 0.7] }
+
+/** Each gesture's arms: [right, left], both written for the right side and mirrored for the left. */
+const ARMS: Record<Gesture, [Arm, Arm]> = {
+  none: [REST, REST],
+  cover: [COVER, COVER],
+  peek: [COVER, { shoulder: COVER.shoulder, elbow: [0.48, -0.2, 0.42], paw: [0.3, 0.1, 0.66] }],
+  'wave-a': [{ shoulder: [0.3, -0.32, 0.12], elbow: [0.66, -0.16, 0.26], paw: [0.9, 0.14, 0.3] }, REST],
+  'wave-b': [{ shoulder: [0.3, -0.32, 0.12], elbow: [0.68, -0.12, 0.26], paw: [0.8, 0.3, 0.3] }, REST],
+  'clap-a': [
+    { shoulder: [0.3, -0.36, 0.12], elbow: [0.4, -0.34, 0.36], paw: [0.22, -0.22, 0.56] },
+    { shoulder: [0.3, -0.36, 0.12], elbow: [0.4, -0.34, 0.36], paw: [0.22, -0.22, 0.56] },
+  ],
+  'clap-b': [
+    { shoulder: [0.3, -0.36, 0.12], elbow: [0.36, -0.32, 0.38], paw: [0.07, -0.2, 0.6] },
+    { shoulder: [0.3, -0.36, 0.12], elbow: [0.36, -0.32, 0.38], paw: [0.07, -0.2, 0.6] },
+  ],
+  think: [{ shoulder: [0.3, -0.36, 0.12], elbow: [0.44, -0.3, 0.46], paw: [0.12, -0.1, 0.62] }, REST],
+}
+
+function armDistance(q: V, arm: Arm): number {
+  const upper = capsule(q, arm.shoulder, arm.elbow, 0.105)
+  const lower = capsule(q, arm.elbow, arm.paw, 0.1)
+  // Paws over the eyes are big enough to hide them completely.
+  const isOverEye = arm.paw[1] > 0.25
+  const paw = ellipsoid(q, arm.paw, isOverEye ? [0.15, 0.14, 0.09] : [0.11, 0.1, 0.085])
+  return smin(smin(upper, lower, 0.05), paw, 0.05)
 }
 
 const EYE_Y = 0.33
@@ -130,11 +171,11 @@ function scene(p0: V, m: Model): { d: number; part: Part } {
   fur = smin(fur, muzzle, 0.08)
   fur = smin(fur, body, 0.16)
 
-  const arm =
-    m.pose === 'jump'
-      ? capsule(ax, [0.3, -0.34, 0.08], [0.6, 0.02, 0.2], 0.1)
-      : capsule(ax, [0.3, -0.38, 0.12], [0.3, -0.64, 0.28], 0.105)
-  fur = smin(fur, arm, 0.08)
+  const [right, left] = m.pose === 'jump' ? [LIFTED, LIFTED] : ARMS[m.gesture]
+  const arms = Math.min(armDistance(p, right), armDistance([-p[0], p[1], p[2]], left))
+  // Arms in front of the face stay their own shape; resting arms melt into the body like a plush.
+  const isArm = arms < fur
+  fur = m.gesture === 'none' || m.pose === 'jump' ? smin(fur, arms, 0.08) : Math.min(smin(fur, arms, 0.02), arms)
 
   // A curly tail on Momo's right, and a little tuft on top of his head.
   let tail = capsule(p, TAIL[0] as V, TAIL[1] as V, 0.056)
@@ -162,8 +203,8 @@ function scene(p0: V, m: Model): { d: number; part: Part } {
 
   let best: { d: number; part: Part } =
     m.layer === 'body'
-      ? { d: furAndFeet, part: foot < fur ? 'foot' : 'fur' }
-      : { d: smin(ear, furAndFeet, 0.07), part: ear < furAndFeet ? 'ear' : foot < fur ? 'foot' : 'fur' }
+      ? { d: furAndFeet, part: foot < fur ? 'foot' : isArm ? 'arm' : 'fur' }
+      : { d: smin(ear, furAndFeet, 0.07), part: ear < furAndFeet ? 'ear' : foot < fur ? 'foot' : isArm ? 'arm' : 'fur' }
   if (eye < best.d) best = { d: eye, part: 'eye' }
   if (nose < best.d) best = { d: nose, part: 'nose' }
   return best
@@ -227,6 +268,8 @@ function albedo(p: V, part: Part, face: Face, m: Model, isBlinking: boolean): { 
   const eyes = isBlinking && (face.eyes === 'open' || face.eyes === 'wide' || face.eyes === 'angry' || face.eyes === 'worried') ? 'blink' : face.eyes
 
   if (part === 'nose') return { color: COLORS.nose, spec: 0.6 }
+  // Arms and paws are plain fur, even where they cross the face.
+  if (part === 'arm') return { color: COLORS.fur, spec: 0 }
 
   if (part === 'ear') {
     const q = rotZ([ax, p[1], p[2]], EAR_CENTER, -m.earTilt)
@@ -368,6 +411,8 @@ export type RenderOptions = {
   bottom: number
   /** Which part to render; all of Momo when left out. */
   layer?: Layer
+  /** What he does with his hands; arms down when left out. */
+  gesture?: Gesture
 }
 
 /** Where the ear and tail layers attach to the body, in world units: Momo Desktop swings them around these. */
@@ -386,6 +431,7 @@ export function render(emotion: Emotion, pose: Pose, isBlinking: boolean, option
     eyeRadius: face.eyes === 'wide' ? 0.215 : 0.195,
     earTilt: pose === 'jump' && options.layer !== 'ear' ? 0.75 : EAR_TILT,
     layer: options.layer ?? 'all',
+    gesture: options.gesture ?? 'none',
   }
   const scale = options.span / options.width
   const rows: RGBA[][] = []

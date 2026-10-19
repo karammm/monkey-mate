@@ -79,13 +79,42 @@ const momo = {
   facingLeft: true,
   target: null, // where an air jump means to land: { y } for a perch
   twitch: [0, 0], // frames left of a quick twitch, left ear then right
+  // What he does with his hands: a list of { name, ms } steps played in order, each until its end time.
+  gestures: [],
 }
 
 const between = ([low, high]) => low + (high - low) * Math.random()
 const width = () => 220 * scale
 const height = () => 160 * scale
 
+// Hand gestures, played on the floor or a perch: cover his eyes, peek, wave, clap, think.
+const GESTURE_FRAMES = {
+  cover: ['cover'],
+  peek: ['peek'],
+  think: ['think'],
+  wave: ['wave-a', 'wave-b'],
+  clap: ['clap-a', 'clap-b'],
+}
+
+/** Plays gestures in order, e.g. gesture(['cover', 2200], ['peek', 1200]). */
+function gesture(...steps) {
+  let at = Date.now()
+  momo.gestures = steps.map(([name, ms]) => ({ name, until: (at += ms) }))
+}
+
+function currentGesture() {
+  momo.gestures = momo.gestures.filter(step => step.until > Date.now())
+  return momo.gestures[0]?.name ?? null
+}
+
 function load() {
+  for (const emotion of EMOTIONS) {
+    for (const frame of Object.values(GESTURE_FRAMES).flat()) {
+      const image = new Image()
+      image.src = `sprites/${emotion}-g-${frame}.png`
+      sprites[`${emotion}-g-${frame}`] = image
+    }
+  }
   for (const part of ['ear', 'tail']) {
     const image = new Image()
     image.src = `sprites/${part}.png`
@@ -166,6 +195,17 @@ function step() {
     momo.y = state.floor
     // He finishes a jump he is in, but starts none while you are busy.
     if (state.isUserBusy) return finishStep()
+    // While Claude works, Momo thinks between his busy little hops.
+    if (state.work && mood !== 'sleepy' && !currentGesture() && momo.rest > 15) gesture(['think', momo.rest * 16])
+    // Now and then a calm Momo plays peekaboo.
+    if (mood === 'calm' && !state.work && !currentGesture() && Math.random() < 0.0004) {
+      gesture(['cover', 1400], ['peek', 700], ['cover', 500])
+    }
+    // He stays put while his hands are busy; thinking still counts down to his next hop.
+    if (currentGesture()) {
+      if (currentGesture() === 'think') momo.rest -= 1
+      return finishStep()
+    }
     momo.rest -= 1
     if (plan && momo.rest <= 0) leap(plan)
   }
@@ -239,7 +279,13 @@ function draw() {
 function drawMomo(mood) {
   const pose = poseOf()
   const blink = momo.blink < 6 && BLINKERS.has(mood) ? 1 : 0
-  const body = sprites[`${mood}-${pose}-${blink}`] ?? sprites[`${mood}-${pose}-0`]
+  const hands = pose === 'sit' && momo.mode !== 'dragged' ? currentGesture() : null
+  let body = sprites[`${mood}-${pose}-${blink}`] ?? sprites[`${mood}-${pose}-0`]
+  if (hands) {
+    const frames = GESTURE_FRAMES[hands]
+    const frame = frames[Math.floor(Date.now() / (hands === 'clap' ? 160 : 260)) % frames.length]
+    body = sprites[`${mood}-g-${frame}`] ?? body
+  }
   const t = performance.now() / 1000
   const look = state.work && mood !== 'sleepy' ? 'working' : mood
   // While you are busy the ears and tail barely move: just the base pose and a slow breath.
@@ -343,7 +389,21 @@ function pet() {
   for (let i = 0; i < 6; i += 1) {
     state.hearts.push({ x: momo.x - 30 + Math.random() * 60, y: momo.y - height() + Math.random() * 30, life: 60 + i * 8 })
   }
-  if (momo.mode === 'idle') leap({ height: [120, 160], reach: 0, perch: 0, rest: [60, 90] })
+  gesture(['clap', 1400])
+}
+
+/** How Momo takes news: his mood, what he says, and what his hands do. */
+function react(emotion, text, bubbleMs = 7000) {
+  const before = state.emotion
+  if (EMOTIONS.includes(emotion)) state.emotion = emotion
+  state.lastNews = Date.now()
+  if (text) state.bubble = { text, until: Date.now() + bubbleMs }
+  // Covering his eyes is one quiet move, so it happens even while you are busy; waving and clapping wait.
+  if (emotion === 'worried') return gesture(['cover', 2000], ['peek', 1200])
+  if (state.isUserBusy) return
+  else if ((emotion === 'happy' || emotion === 'proud') && text) gesture(['clap', 1600])
+  else if (emotion === 'curious' && before !== 'curious') gesture(['wave', 1400])
+  else if (momo.mode === 'idle') momo.rest = 0
 }
 
 // Mouse: hovering Momo makes the window catch clicks; a click pets him, a drag carries him anywhere.
@@ -395,13 +455,7 @@ window.monkeyMate.onActivity(({ working, text }) => {
   state.lastNews = Date.now()
   if (working && momo.mode === 'idle' && !state.isUserBusy) momo.rest = 0
 })
-window.monkeyMate.onMood(({ emotion, text }) => {
-  if (EMOTIONS.includes(emotion)) state.emotion = emotion
-  state.lastNews = Date.now()
-  if (text) state.bubble = { text, until: Date.now() + 7000 }
-  // Momo reacts right away, unless you are busy.
-  if (momo.mode === 'idle' && !state.isUserBusy) momo.rest = 0
-})
+window.monkeyMate.onMood(({ emotion, text }) => react(emotion, text))
 window.monkeyMate.onFloor(floor => {
   state.floor = floor
   if (momo.mode === 'idle') momo.y = floor
@@ -421,6 +475,7 @@ window.monkeyMate.onSummon(() => {
   momo.mode = 'air'
   momo.target = null
   state.bubble = { text: 'Here I am!', until: Date.now() + 3000 }
+  gesture(['wave', 1800])
 })
 
 // A quick tour of every mood, from the menu: handy to see what Momo can do.
@@ -435,12 +490,7 @@ const TOUR = [
 ]
 window.monkeyMate.onTour(() => {
   TOUR.forEach(([emotion, text], index) =>
-    setTimeout(() => {
-      state.emotion = emotion
-      state.lastNews = Date.now()
-      state.bubble = { text, until: Date.now() + 3800 }
-      if (momo.mode === 'idle') momo.rest = 0
-    }, index * 4000),
+    setTimeout(() => react(emotion, text, 3800), index * 4000),
   )
 })
 
@@ -448,6 +498,8 @@ window.addEventListener('resize', resize)
 resize()
 load()
 momo.y = state.floor
+// Hello!
+gesture(['wave', 2200])
 
 let last = performance.now()
 function frame(now) {

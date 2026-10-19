@@ -4,7 +4,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 
 import type { Emotion } from '../types'
-import { render, RIG } from './momo3d'
+import { GESTURES, render, RIG } from './momo3d'
 import type { Pose, RGBA } from './momo3d'
 import { apng, png } from './png'
 import type { Image } from './png'
@@ -156,6 +156,13 @@ async function bakeImages() {
         const image = render(emotion, pose, blink, { ...desktop, layer: 'body' })
         writeFileSync(`desktop/sprites/${emotion}-${pose}-${blink ? 1 : 0}.png`, png(toImage(image)))
       }
+    }
+  }
+  // Hand gestures (covering his eyes, waving, clapping, thinking), sitting, for every mood.
+  for (const emotion of EMOTIONS) {
+    for (const gesture of GESTURES) {
+      const image = render(emotion, 'sit', false, { ...desktop, layer: 'body', gesture })
+      writeFileSync(`desktop/sprites/${emotion}-g-${gesture}.png`, png(toImage(image)))
     }
   }
   writeFileSync('desktop/sprites/ear.png', png(toImage(render('calm', 'sit', false, { ...desktop, layer: 'ear' }))))

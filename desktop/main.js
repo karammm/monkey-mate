@@ -80,7 +80,7 @@ function startServer() {
     // Where Momo is and how he feels, for checking that he moves.
     if (request.method === 'GET' && request.url === '/status') {
       win?.webContents
-        .executeJavaScript('JSON.stringify({ x: Math.round(momo.x), y: Math.round(momo.y), mode: momo.mode, emotion: emotion(), floor: state.floor, isUserBusy: state.isUserBusy })')
+        .executeJavaScript('JSON.stringify({ x: Math.round(momo.x), y: Math.round(momo.y), mode: momo.mode, emotion: emotion(), floor: state.floor, isUserBusy: state.isUserBusy, hands: currentGesture() })')
         .then(json => response.end(json))
         .catch(() => response.end('{}'))
       return
