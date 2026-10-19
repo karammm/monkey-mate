@@ -3,7 +3,12 @@
 
 const EMOTIONS = ['happy', 'proud', 'calm', 'curious', 'worried', 'angry', 'sleepy']
 const BLINKERS = new Set(['calm', 'curious', 'worried', 'angry'])
-const SCALE = 0.75 // sprites are 220x160; Momo is drawn at 165x120
+// Sprites are 220x160; Momo is drawn at a share of that, picked from the menu and remembered.
+const SIZES = { small: 0.4, medium: 0.55, large: 0.75 }
+let scale = SIZES.medium
+try {
+  scale = SIZES[localStorage.getItem('size')] ?? SIZES.medium
+} catch {}
 const GRAVITY = 0.55 // px per frame per frame, at 60 frames a second
 const SLEEPY_AFTER_MS = 10 * 60 * 1000
 
@@ -47,8 +52,8 @@ const momo = {
 }
 
 const between = ([low, high]) => low + (high - low) * Math.random()
-const width = () => 220 * SCALE
-const height = () => 160 * SCALE
+const width = () => 220 * scale
+const height = () => 160 * scale
 
 function load() {
   for (const emotion of EMOTIONS) {
@@ -296,6 +301,12 @@ window.monkeyMate.onFloor(floor => {
   if (momo.mode === 'idle') momo.y = floor
 })
 window.monkeyMate.onPet(pet)
+window.monkeyMate.onSize(size => {
+  scale = SIZES[size] ?? scale
+  try {
+    localStorage.setItem('size', size)
+  } catch {}
+})
 window.monkeyMate.onSummon(() => {
   momo.x = window.innerWidth / 2
   momo.y = state.floor - 200

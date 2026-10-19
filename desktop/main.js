@@ -58,6 +58,13 @@ function createTray() {
       { label: 'Pet Momo', click: () => win?.webContents.send('pet') },
       { label: 'Call Momo here', click: () => win?.webContents.send('summon') },
       { label: 'Show all his moods', click: () => win?.webContents.send('tour') },
+      {
+        label: 'Size',
+        submenu: ['small', 'medium', 'large'].map(size => ({
+          label: size[0].toUpperCase() + size.slice(1),
+          click: () => win?.webContents.send('size', size),
+        })),
+      },
       { type: 'separator' },
       { label: 'Quit Momo', click: () => app.quit() },
     ]),
