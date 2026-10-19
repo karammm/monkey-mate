@@ -1,4 +1,4 @@
-// Momo, the little white monkey, in ASCII. Every line is the same width so the pane never jitters.
+// Momo, the little big-eared white monkey, in ASCII, for surfaces without pixel graphics. Every line is the same width so the pane never jitters.
 
 import type { Emotion } from '../types'
 
@@ -23,17 +23,18 @@ export const monkey = (emotion: Emotion, frame: number): string[] => {
   const extra = face.extra ?? ''
 
   return [
-    `    .-"""""-.  ${extra}`,
-    ` .-/ ${face.brow} \\-.`,
-    `( (| ${eyes} |) )`,
-    ` '-\\ ${face.mouth} /-'`,
-    `    '-.___.-'`,
-    `     /|   |\\`,
-    `      |___|`,
+    `  __           __  ${extra}`,
+    ` /  \\ .-"""-. /  \\`,
+    ` \\   /${face.brow}\\   /`,
+    `  \\  |${eyes}|  /`,
+    `     |${face.mouth}|`,
+    `      '-----'`,
+    `      /|   |\\`,
+    `     (_|___|_)`,
   ].map(line => line.padEnd(WIDTH))
 }
 
-export const WIDTH = 19
+export const WIDTH = 22
 
 export const EMOJI: Record<Emotion, string> = {
   happy: '😄',

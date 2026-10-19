@@ -4,7 +4,7 @@ import { SPRITE_HEIGHT, SPRITE_WIDTH, spriteRows, PALETTE } from '../hooks/sprit
 import { encodeCells, initialActor, paint, poseOf, step, toBase64 } from '../hooks/stage'
 
 const EMOTIONS = ['happy', 'proud', 'calm', 'curious', 'worried', 'angry', 'sleepy'] as const
-const STAGE = { columns: 36, rows: 16 }
+const STAGE = { columns: 44, rows: 20 }
 
 // A fixed sequence instead of Math.random, so runs repeat.
 const sequence = () => {
@@ -16,7 +16,7 @@ const sequence = () => {
 }
 
 describe('sprite', () => {
-  test('every pose is 18x18 and uses only palette colors', () => {
+  test('every pose fills the sprite box and uses only palette colors', () => {
     for (const emotion of EMOTIONS) {
       for (const pose of ['sit', 'jump', 'squash'] as const) {
         const rows = spriteRows(emotion, pose, false)

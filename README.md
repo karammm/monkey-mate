@@ -1,12 +1,12 @@
 <div align="center">
 
-<img src="assets/momo-demo.png" alt="Momo, a white pixel-art monkey, hopping across his stage" width="576">
+<img src="assets/momo-demo.png" alt="Momo, a big-eared white pixel-art monkey, hopping across his stage" width="576">
 
 # monkey-mate
 
 **An emotionally aware companion for Claude Code.**
 
-Momo is a small white snow monkey who lives in a side pane of your Claude Code session. He watches every
+Momo is a small plush white monkey, all ears and big amber eyes, who lives in a side pane of your Claude Code session. He watches every
 tool call, reacts to how the work is going, warns you before destructive commands, and summarises what
 changed at the end of every turn.
 
@@ -43,7 +43,7 @@ at a glance, without blocking or slowing Claude down.
 - **Observe-only.** Momo never blocks, changes or delays a tool call.
 
 <div align="center">
-<img src="assets/momo-moods.png" alt="Momo's seven moods: happy, proud, calm, curious, worried, angry, sleepy" width="632">
+<img src="assets/momo-moods.png" alt="Momo's seven moods: happy, proud, calm, curious, worried, angry, sleepy" width="760">
 </div>
 
 | Mood | When |
@@ -116,7 +116,7 @@ turn ends ──┘        │                       ▲
 | [`hooks/signals.ts`](hooks/signals.ts) | Classifies tool calls and prompts: tests, builds, errors, risky commands, tone |
 | [`hooks/mood.ts`](hooks/mood.ts) | The mood engine: a score from -100 to +100 with decay, streaks and short flashes |
 | [`hooks/ledger.ts`](hooks/ledger.ts) | Tracks changes per turn and per session |
-| [`hooks/sprite.ts`](hooks/sprite.ts) | Momo's pixel art: 18×18 sprites per mood and pose |
+| [`hooks/sprite.ts`](hooks/sprite.ts) | Momo's pixel art: 32×28 sprites per mood and pose, built from shapes |
 | [`hooks/stage.ts`](hooks/stage.ts) | Jump physics and encoding pixels into terminal cells |
 | [`hooks/ui.tsx`](hooks/ui.tsx) | The pane and the band |
 

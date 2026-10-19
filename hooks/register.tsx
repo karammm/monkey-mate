@@ -8,6 +8,7 @@ import { applySignal, emotionOf, initialMood, resolveSignal, settle } from './mo
 import { loudest, moodLine, reaction } from './phrases'
 import { classifyPrompt, classifyTool, errorKey } from './signals'
 import type { Observation, Signal } from './signals'
+import { SPRITE_WIDTH } from './sprite'
 import { encodeCells, initialActor, paint, step } from './stage'
 import type { Stage } from './stage'
 import { band, pane, PANE_MIN_COLUMNS, STAGE_KEY } from './ui'
@@ -15,7 +16,7 @@ import { band, pane, PANE_MIN_COLUMNS, STAGE_KEY } from './ui'
 const PANE = 'momo'
 // About 14 frames a second: smooth hops without keeping the terminal busy.
 const ANIMATION_MS = 70
-const STAGE_ROWS = 16
+const STAGE_ROWS = 20
 
 const moodAtom = atom({ plugin: 'monkey-mate', key: 'mood' } as const, initialMood(0))
 const ledgerAtom = atom({ plugin: 'monkey-mate', key: 'ledger' } as const, emptyLedger())
@@ -41,7 +42,7 @@ const say = async ($: EngineInterface, text: string, lines: string[] = []) => {
 // The animation runs many times a second, so it reads this copy of the mood rather than the state.
 let lastMood: Mood = initialMood(0)
 let actor = initialActor()
-let stage: Stage = { columns: 36, rows: STAGE_ROWS }
+let stage: Stage = { columns: 44, rows: STAGE_ROWS }
 let cells = ''
 
 const refreshStatus = async ($: EngineInterface) => {
@@ -207,10 +208,10 @@ export const register: Register = on => {
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const mood = await read($, moodAtom)
     const emotion = emotionOf(mood, await $.clock.now())
-    const columns = Math.max(20, Math.min(48, e.props.bodyColumns - 2))
+    const columns = Math.max(SPRITE_WIDTH + 2, Math.min(56, e.props.bodyColumns - 2))
     if (columns !== stage.columns) {
       stage = { columns, rows: STAGE_ROWS }
-      actor = { ...actor, x: Math.min(actor.x, Math.max(0, columns - 18)) }
+      actor = { ...actor, x: Math.min(actor.x, Math.max(0, columns - SPRITE_WIDTH)) }
     }
     lastMood = mood
     cells = drawStage(emotion)
