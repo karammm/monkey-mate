@@ -117,8 +117,9 @@ companion app (Electron, macOS and Windows) that floats a transparent, click-thr
 
 ```bash
 cd desktop
-npm install    # first time only
-npm start
+npm install          # first time only
+npm run start:mac    # macOS: runs as Momo.app (needed for push-to-talk and "where you type")
+npm start            # Windows and Linux
 ```
 
 - Momo walks along the top of your Dock or taskbar, leaps around, and sometimes perches high up the screen.
@@ -126,6 +127,12 @@ npm start
 - **Click** him for his glass menu: play a tune (he dances), play or pause Spotify or Apple Music, dance, tell
   a joke, ask what is happening, pet him, let him nap, or **Ask Claude…**: type a request such as "run the
   tests" and Momo puts it in Claude Code's prompt box for you to send. Nothing runs without your Enter.
+- **He speaks** in a cute, high voice (your computer's own speech voices, so it works offline): turn
+  summaries, warnings, each step as it happens, jokes and giggles, with his mouth moving as he talks.
+  Switch his voice or the step-by-step narration off from his menu.
+- **Talk to him** (macOS): click him and choose 🎤 Talk to Momo, or press **⌥M** anywhere, and speak. He shows
+  what he hears and puts it in Claude Code's prompt box for you to send. Speech is turned into text by Apple's
+  recognizer, on your Mac whenever it supports that, and only while he is listening.
 - **Hover** over him and he giggles ("Hehe! That tickles 😆"); rub the mouse back and forth and he gets
   playfully grumpy ("Hey! Stop teasing me 😤").
 - He talks in frosted **liquid-glass** bubbles (the system's own glass material) and thinks out loud while

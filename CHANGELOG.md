@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.0
+
+- Momo speaks: a cute pitched-up system voice for summaries, warnings, live steps and fun, with a talking mouth
+- Push-to-talk on macOS (menu or ⌥M): what you say goes into Claude Code's prompt box
+- Momo Desktop runs as Momo.app on macOS, with its own name, icon and permission descriptions
+
 ## 0.4.0
 
 - Click Momo for a glass menu: tune and dance, music app play/pause, jokes, status, pet, nap, and Ask Claude (fills Claude Code's prompt box)

@@ -1,13 +1,14 @@
 {
   "name": "momo-desktop",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "description": "Momo the monkey, free to roam your whole screen while you work with Claude Code.",
   "main": "main.js",
   "license": "MIT",
   "scripts": {
     "start": "electron .",
-    "start:mac": "open -n node_modules/electron/dist/Electron.app --args \"$PWD\"",
+    "start:mac": "node make-app.js --if-missing && open -n Momo.app --args \"$PWD\"",
+    "make-app": "node make-app.js",
     "postinstall": "node build-native.js"
   },
   "devDependencies": {

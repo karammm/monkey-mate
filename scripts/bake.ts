@@ -165,6 +165,11 @@ async function bakeImages() {
       writeFileSync(`desktop/sprites/${emotion}-g-${gesture}.png`, png(toImage(image)))
     }
   }
+  // His talking frame: mouth open, swapped with the closed one while he speaks.
+  for (const emotion of EMOTIONS) {
+    const image = render(emotion, 'sit', false, { ...desktop, layer: 'body', isTalking: true })
+    writeFileSync(`desktop/sprites/${emotion}-talk.png`, png(toImage(image)))
+  }
   writeFileSync('desktop/sprites/ear.png', png(toImage(render('calm', 'sit', false, { ...desktop, layer: 'ear' }))))
   writeFileSync('desktop/sprites/tail.png', png(toImage(render('calm', 'sit', false, { ...desktop, layer: 'tail' }))))
   const toPixels = ([x, y]: [number, number]) => [
@@ -179,6 +184,8 @@ async function bakeImages() {
       '',
     ].join('\n'),
   )
+  // Momo.app's icon: a square close-up.
+  writeFileSync('desktop/sprites/icon.png', png(toImage(render('happy', 'sit', false, { width: 1024, height: 1024, samples: 2, span: 2.9, bottom: -1.3 }))))
   writeFileSync('desktop/sprites/tray.png', png(toImage(render('calm', 'sit', false, at(1, 3)))))
   console.log('desktop/sprites')
 

@@ -104,6 +104,8 @@ type Model = {
   earTilt: number
   layer: Layer
   gesture: Gesture
+  /** True for his mouth-open talking frame. */
+  isTalking: boolean
 }
 
 // An arm, on Momo's right side of the picture (x > 0): shoulder to elbow to paw.
@@ -349,7 +351,8 @@ function albedo(p: V, part: Part, face: Face, m: Model, isBlinking: boolean): { 
     if (p[2] > 0.3) {
       const muzzle = Math.hypot(p[0] / 0.2, (p[1] - 0.12) / 0.13)
       if (muzzle < 1) color = mix(COLORS.muzzle, color, smoothstep(0.75, 1, muzzle))
-      const mouth = mouthAt(p[0], p[1], m.pose === 'jump' && face.mouth !== 'flat' ? 'open' : face.mouth)
+      const isOpen = m.isTalking || (m.pose === 'jump' && face.mouth !== 'flat')
+      const mouth = mouthAt(p[0], p[1], isOpen ? 'open' : face.mouth)
       if (mouth !== null) return { color: mouth, spec: 0.2 }
     }
 
@@ -426,6 +429,8 @@ export type RenderOptions = {
   layer?: Layer
   /** What he does with his hands; arms down when left out. */
   gesture?: Gesture
+  /** Mouth open, as while talking. */
+  isTalking?: boolean
 }
 
 /** Where the ear and tail layers attach to the body, in world units: Momo Desktop swings them around these. */
@@ -445,6 +450,7 @@ export function render(emotion: Emotion, pose: Pose, isBlinking: boolean, option
     earTilt: pose === 'jump' && options.layer !== 'ear' ? 0.75 : EAR_TILT,
     layer: options.layer ?? 'all',
     gesture: options.gesture ?? 'none',
+    isTalking: options.isTalking ?? false,
   }
   const scale = options.span / options.width
   const rows: RGBA[][] = []

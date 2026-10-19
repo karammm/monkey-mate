@@ -13,6 +13,8 @@ contextBridge.exposeInMainWorld('monkeyMate', {
   onTyping: callback => ipcRenderer.on('typing', (_event, message) => callback(message)),
   say: message => ipcRenderer.send('bubble', message),
   openMenu: box => ipcRenderer.send('open-menu', box),
+  talk: () => ipcRenderer.send('talk'),
+  onHearing: callback => ipcRenderer.on('hearing', (_event, heard) => callback(heard)),
   onAction: callback => ipcRenderer.on('action', (_event, message) => callback(message)),
   onSize: callback => ipcRenderer.on('size', (_event, size) => callback(size)),
   setHover: isOverMomo => ipcRenderer.send('hover', isOverMomo),

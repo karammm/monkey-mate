@@ -1,7 +1,7 @@
 // Momo Desktop: a transparent, click-through window over the whole screen where Momo roams.
 // The monkey-mate plugin tells it how Momo feels by POSTing to http://127.0.0.1:47321/mood.
 
-const { app, BrowserWindow, ipcMain, Menu, nativeImage, powerMonitor, screen, Tray } = require('electron')
+const { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, powerMonitor, screen, Tray } = require('electron')
 const { execFile, spawn } = require('node:child_process')
 const crypto = require('node:crypto')
 const fs = require('node:fs')
@@ -176,6 +176,47 @@ async function whereTyping() {
   return { x: answer.x - bounds.x, y: answer.y - bounds.y, w: answer.w, h: answer.h, exact: answer.exact === true }
 }
 
+// Push-to-talk (macOS): the native/listen helper hears you only between "start" and "stop". It starts the
+// first time you ask Momo to listen, which is when macOS asks for the microphone and speech recognition.
+const LISTEN = path.join(__dirname, 'native', 'listen')
+const canTalk = process.platform === 'darwin' && fs.existsSync(LISTEN)
+let listen = null
+let isListening = false
+
+function startListen() {
+  listen = spawn(LISTEN, [], { stdio: ['pipe', 'pipe', 'ignore'] })
+  let buffer = ''
+  listen.stdout.on('data', chunk => {
+    buffer += chunk
+    for (let end = buffer.indexOf('\n'); end >= 0; end = buffer.indexOf('\n')) {
+      const line = buffer.slice(0, end)
+      buffer = buffer.slice(end + 1)
+      let event = null
+      try {
+        event = JSON.parse(line)
+      } catch {}
+      if (!event) continue
+      if (event.listening) isListening = true
+      if (event.final !== undefined || event.error) isListening = false
+      // What you said goes to Claude's prompt box, as if you had typed it in Momo's menu.
+      if (typeof event.final === 'string' && event.final.trim()) inbox.push({ type: 'ask', text: event.final.trim().slice(0, 400) })
+      win?.webContents.send('hearing', event)
+    }
+  })
+  listen.on('exit', () => {
+    listen = null
+    isListening = false
+  })
+}
+
+function toggleListening() {
+  if (!canTalk) return win?.webContents.send('hearing', { error: 'unavailable' })
+  if (!listen) startListen()
+  listen.stdin.write(isListening ? 'stop\n' : 'start\n')
+}
+
+ipcMain.on('talk', toggleListening)
+
 // Momo's click menu: a small glass window beside him.
 const MENU_WIDTH = 260
 function createMenu() {
@@ -205,7 +246,7 @@ function createMenu() {
 ipcMain.on('menu-size', (_event, height) => menu?.setSize(MENU_WIDTH, Math.min(600, height)))
 
 // The overlay asks for the menu with Momo's box in window coordinates.
-ipcMain.on('open-menu', (_event, { x, y, w, h, isPlaying }) => {
+ipcMain.on('open-menu', (_event, { x, y, w, h, ...settings }) => {
   if (!menu) return
   const { bounds, workArea } = screen.getPrimaryDisplay()
   const [, height] = menu.getSize()
@@ -216,7 +257,7 @@ ipcMain.on('open-menu', (_event, { x, y, w, h, isPlaying }) => {
   menu.setPosition(Math.round(menuX), Math.round(menuY))
   menu.show()
   menu.focus()
-  menu.webContents.send('open', { isPlaying })
+  menu.webContents.send('open', { ...settings, canTalk, isListening })
 })
 
 ipcMain.on('menu-action', (_event, { action, text }) => {
@@ -225,6 +266,10 @@ ipcMain.on('menu-action', (_event, { action, text }) => {
   if (action === 'ask') {
     inbox.push({ type: 'ask', text: String(text).slice(0, 400) })
     win?.webContents.send('action', { action: 'asked' })
+    return
+  }
+  if (action === 'talk') {
+    toggleListening()
     return
   }
   if (action === 'music-app') {
@@ -384,8 +429,14 @@ app.whenReady().then(() => {
   startCaret()
   createTray()
   startServer()
+  // ⌥M (Alt+M): talk to Momo from anywhere; press again to stop, or just pause and he stops listening.
+  if (canTalk) globalShortcut.register('Alt+M', toggleListening)
   watchInput()
 })
 
 app.on('window-all-closed', () => app.quit())
-app.on('will-quit', () => caret?.kill())
+app.on('will-quit', () => {
+  globalShortcut.unregisterAll()
+  caret?.kill()
+  listen?.kill()
+})
