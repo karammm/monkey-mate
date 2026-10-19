@@ -122,7 +122,12 @@ npm start
 ```
 
 - Momo walks along the top of your Dock or taskbar, leaps around, and sometimes perches high up the screen.
-- **Drag** him anywhere and he sits right where you drop him. **Click** him to pet him.
+- **Drag** him anywhere and he sits right where you drop him.
+- **Click** him for his glass menu: play a tune (he dances), play or pause Spotify or Apple Music, dance, tell
+  a joke, ask what is happening, pet him, let him nap, or **Ask Claude…**: type a request such as "run the
+  tests" and Momo puts it in Claude Code's prompt box for you to send. Nothing runs without your Enter.
+- **Hover** over him and he giggles ("Hehe! That tickles 😆"); rub the mouse back and forth and he gets
+  playfully grumpy ("Hey! Stop teasing me 😤").
 - He talks in frosted **liquid-glass** bubbles (the system's own glass material) and thinks out loud while
   Claude works. His mood follows your Claude Code session.
 - While you **type**, he politely covers his eyes 🙈 and peeks out when you stop. While you use the mouse he

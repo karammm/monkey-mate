@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.0
+
+- Click Momo for a glass menu: tune and dance, music app play/pause, jokes, status, pet, nap, and Ask Claude (fills Claude Code's prompt box)
+- Hovering tickles Momo; rubbing back and forth teases him
+- Plain-words narration of each step and a one-line summary per turn
+- Momo covers his eyes smoothly while you type and can sit beside where you type (macOS, with Accessibility permission)
+- No more sunglasses: proud Momo has sparkly eyes
+
 ## 0.3.0
 
 - Momo Desktop (desktop/): Momo roams the whole screen in a transparent, click-through window; drag him anywhere, click to pet

@@ -40,6 +40,10 @@ const state = {
   isUserBusy: false,
   // True while you type: Momo covers his eyes.
   isTyping: false,
+  flash: null,
+  napUntil: 0,
+  // While a dance or tune runs: { until } or null.
+  dance: null,
 }
 
 // How the ears and tail move per mood: ear angle (radians, up is positive), wiggle size and speed (Hz).
@@ -83,6 +87,7 @@ const momo = {
   twitch: [0, 0], // frames left of a quick twitch, left ear then right
   // What he does with his hands: a list of { name, ms } steps played in order, each until its end time.
   gestures: [],
+  jiggle: 0, // frames left of a tickled wobble
 }
 
 const between = ([low, high]) => low + (high - low) * Math.random()
@@ -153,7 +158,14 @@ function resize() {
 }
 
 function emotion() {
+  if (state.napUntil > Date.now()) return 'sleepy'
+  if (state.flash && Date.now() < state.flash.until) return state.flash.emotion
   return Date.now() - state.lastNews > SLEEPY_AFTER_MS ? 'sleepy' : state.emotion
+}
+
+/** A feeling that passes in a moment (tickled, teased), without changing his real mood. */
+function flash(emotion, ms) {
+  state.flash = { emotion, until: Date.now() + ms }
 }
 
 function leap(plan) {
@@ -185,6 +197,13 @@ function step() {
   momo.twitch = momo.twitch.map(frames => (frames > 0 ? frames - 1 : !state.isUserBusy && Math.random() < 0.002 ? 10 : 0))
   momo.blink = momo.blink <= 0 ? 90 + Math.random() * 180 : momo.blink - 1
   momo.squash = Math.max(0, momo.squash - 1)
+  momo.jiggle = Math.max(0, momo.jiggle - 1)
+  // Dancing: little hops on the beat and happy paws, until the music stops.
+  if (state.dance && Date.now() > state.dance.until) stopDance()
+  if (state.dance && momo.mode === 'idle' && !currentGesture()) {
+    gesture([Math.random() < 0.5 ? 'clap' : 'wave', 900])
+    leapTo(momo.x + (Math.random() * 2 - 1) * 40, state.floor, 26)
+  }
 
   if (momo.mode === 'air') {
     momo.x += momo.vx
@@ -267,6 +286,12 @@ function draw() {
     ctx.translate(momo.x * 2, 0)
     ctx.scale(-1, 1)
   }
+  // A giggly wobble when tickled, a bounce to the beat when dancing: squash and stretch from his feet.
+  const t = performance.now() / 1000
+  const wobble = momo.jiggle > 0 ? 0.07 * Math.sin(t * 38) * (momo.jiggle / 40) : state.dance ? 0.05 * Math.sin(t * Math.PI * 4) : 0
+  ctx.translate(momo.x, momo.y)
+  ctx.scale(1 + wobble, 1 - wobble)
+  ctx.translate(-momo.x, -momo.y)
   ctx.translate(left, top)
   ctx.scale(w / RIG.size[0], h / RIG.size[1])
   drawMomo(mood)
@@ -394,13 +419,24 @@ function react(emotion, text, bubbleMs = 7000) {
 // Mouse: hovering Momo makes the window catch clicks; a click pets him, a drag carries him anywhere.
 let hovering = false
 let drag = null
+let hoverStart = 0
+let lastMouse = null
+let rubbing = [] // [time, distance] of mouse moves over Momo, for telling tickling from teasing
+let lastTickle = 0
 window.addEventListener('mousemove', event => {
   const over = isOverMomo(event.clientX, event.clientY) || drag !== null
   if (over !== hovering) {
     hovering = over
+    hoverStart = Date.now()
     window.monkeyMate.setHover(over)
     canvas.style.cursor = over ? 'grab' : 'default'
   }
+  if (over && !drag) {
+    const moved = lastMouse ? Math.hypot(event.clientX - lastMouse.x, event.clientY - lastMouse.y) : 0
+    rubbing = [...rubbing.filter(([time]) => Date.now() - time < 1500), [Date.now(), moved]]
+    feelTheMouse()
+  }
+  lastMouse = { x: event.clientX, y: event.clientY }
   if (drag) {
     drag.moved ||= Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) > 4
     momo.x = event.clientX - drag.dx
@@ -427,7 +463,142 @@ window.addEventListener('mouseup', () => {
     momo.perchFrames = between([600, 1200])
   }
   momo.squash = 8
-  if (!moved) pet()
+  if (!moved) openMenu()
+})
+
+function openMenu() {
+  if (state.napUntil > Date.now()) {
+    state.napUntil = 0
+    state.lastNews = Date.now()
+    say1('I am up! 🐒', 2000)
+    gesture(['wave', 1200])
+    return
+  }
+  const w = width()
+  const h = height()
+  window.monkeyMate.openMenu({ x: momo.x, y: momo.y, w, h, isPlaying: tune !== null })
+}
+
+/** A mouse resting on Momo tickles him; rubbing back and forth fast teases him. */
+function feelTheMouse() {
+  const now = Date.now()
+  const distance = rubbing.reduce((sum, [, moved]) => sum + moved, 0)
+  if (now - lastTickle < 2500 || momo.mode === 'dragged') return
+  if (distance > 700) {
+    lastTickle = now + 1500
+    flash('angry', 1800)
+    momo.jiggle = 20
+    say1('Hey! Stop teasing me 😤')
+    setTimeout(() => {
+      flash('happy', 1600)
+      momo.jiggle = 30
+      say1('...okay, that was funny 😆')
+    }, 2000)
+  } else if (now - hoverStart > 350) {
+    lastTickle = now
+    flash('happy', 1400)
+    momo.jiggle = 40
+    say1(['Hehe! That tickles 😆', 'Hihi, stop it! 🤭', 'Teehee! 🐒', 'Not there, I am ticklish! 😂'][Math.floor(Math.random() * 4)])
+    state.hearts.push({ x: momo.x - 10 + Math.random() * 20, y: momo.y - height(), life: 50 })
+  }
+}
+
+function say1(text, ms = 1800) {
+  state.bubble = { text, until: Date.now() + ms }
+}
+
+// The little tune: a cheerful loop made on the spot with Web Audio, soft enough not to startle.
+let tune = null
+const MELODY = [72, 76, 79, 76, 77, 74, 71, 74, 72, 76, 79, 84, 83, 79, 76, 79]
+const BASS = [48, 48, 55, 55, 53, 53, 55, 55]
+function playTune() {
+  const audio = new AudioContext()
+  const volume = audio.createGain()
+  volume.gain.value = 0.06
+  volume.connect(audio.destination)
+  const note = (midi, at, length, type) => {
+    const osc = audio.createOscillator()
+    const env = audio.createGain()
+    osc.type = type
+    osc.frequency.value = 440 * 2 ** ((midi - 69) / 12)
+    env.gain.setValueAtTime(0.0001, at)
+    env.gain.exponentialRampToValueAtTime(1, at + 0.02)
+    env.gain.exponentialRampToValueAtTime(0.0001, at + length)
+    osc.connect(env).connect(volume)
+    osc.start(at)
+    osc.stop(at + length + 0.05)
+  }
+  const beat = 0.25
+  let next = audio.currentTime + 0.05
+  const schedule = () => {
+    while (next < audio.currentTime + 1) {
+      const step = Math.round(next / beat)
+      note(MELODY[step % MELODY.length], next, beat * 0.9, 'triangle')
+      if (step % 2 === 0) note(BASS[(step / 2) % BASS.length], next, beat * 1.8, 'sine')
+      next += beat
+    }
+  }
+  schedule()
+  tune = { audio, timer: setInterval(schedule, 400) }
+  dance(60 * 60 * 1000)
+}
+
+function stopTune() {
+  if (!tune) return
+  clearInterval(tune.timer)
+  tune.audio.close()
+  tune = null
+}
+
+function dance(ms) {
+  state.dance = { until: Date.now() + ms }
+  flash('happy', ms)
+}
+
+function stopDance() {
+  state.dance = null
+  state.flash = null
+  stopTune()
+}
+
+const JOKES = [
+  'Why do programmers mix up Halloween and Christmas? Because Oct 31 = Dec 25 🎃',
+  'There are 10 kinds of people: those who know binary and those who do not 🤓',
+  'I would tell you a UDP joke, but you might not get it 📦',
+  'A bug walks into a bar. The bartender says: works on my machine 🍹',
+  'Why did the monkey like the computer? It was full of bananas... I mean bits 🍌',
+  'Debugging: being the detective in a crime movie where you are also the criminal 🕵️',
+]
+
+window.monkeyMate.onAction(({ action, text }) => {
+  if (action === 'tune') {
+    if (tune) {
+      stopDance()
+      say1('Okay, music off 🎵')
+    } else {
+      playTune()
+      say1('🎶 La la la!', 2500)
+    }
+  } else if (action === 'dance') {
+    dance(8000)
+    say1('Watch my moves! 💃', 2500)
+  } else if (action === 'joke') {
+    say1(JOKES[Math.floor(Math.random() * JOKES.length)], 7000)
+    gesture(['clap', 1200])
+  } else if (action === 'status') {
+    say1(state.work ? `Claude is busy: ${state.work.text}` : 'Claude is waiting for you. All calm here 🙂', 4000)
+  } else if (action === 'pet') {
+    pet()
+  } else if (action === 'nap') {
+    stopDance()
+    state.napUntil = Date.now() + 10 * 60 * 1000
+    say1('Zzz... wake me with a click 😴', 2500)
+  } else if (action === 'asked') {
+    say1('Put it in Claude’s prompt box ✨ Press Enter there!', 4500)
+    gesture(['wave', 1200])
+  } else if (action === 'say' && text) {
+    say1(text, 3500)
+  }
 })
 
 // While you type, Momo politely covers his eyes; when you stop, he peeks out and lowers his paws.

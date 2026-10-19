@@ -2,9 +2,11 @@
 // The monkey-mate plugin tells it how Momo feels by POSTing to http://127.0.0.1:47321/mood.
 
 const { app, BrowserWindow, ipcMain, Menu, nativeImage, powerMonitor, screen, Tray } = require('electron')
-const { spawn } = require('node:child_process')
+const { execFile, spawn } = require('node:child_process')
+const crypto = require('node:crypto')
 const fs = require('node:fs')
 const http = require('node:http')
+const os = require('node:os')
 const path = require('node:path')
 
 const PORT = 47321
@@ -12,6 +14,17 @@ const PORT = 47321
 let win = null
 let tray = null
 let bubble = null
+let menu = null
+
+// Requests for Claude typed into Momo's menu wait here until the monkey-mate plugin collects them.
+// Only the plugin can: it must send the key in ~/.monkey-mate/desktop-token, a file only you can read.
+const inbox = []
+const TOKEN = crypto.randomBytes(24).toString('hex')
+function writeToken() {
+  const folder = path.join(os.homedir(), '.monkey-mate')
+  fs.mkdirSync(folder, { recursive: true, mode: 0o700 })
+  fs.writeFileSync(path.join(folder, 'desktop-token'), TOKEN, { mode: 0o600 })
+}
 
 if (!app.requestSingleInstanceLock()) {
   app.quit()
@@ -34,7 +47,12 @@ function createWindow() {
     alwaysOnTop: true,
     backgroundColor: '#00000000',
     // Momo's window never takes focus, so keep it from being treated as a background tab and paused.
-    webPreferences: { preload: path.join(__dirname, 'preload.js'), backgroundThrottling: false },
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      backgroundThrottling: false,
+      // Momo's little tune plays when you ask for it from his menu.
+      autoplayPolicy: 'no-user-gesture-required',
+    },
   })
   win.setAlwaysOnTop(true, 'screen-saver')
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
@@ -158,6 +176,79 @@ async function whereTyping() {
   return { x: answer.x - bounds.x, y: answer.y - bounds.y, w: answer.w, h: answer.h, exact: answer.exact === true }
 }
 
+// Momo's click menu: a small glass window beside him.
+const MENU_WIDTH = 260
+function createMenu() {
+  menu = new BrowserWindow({
+    width: MENU_WIDTH,
+    height: 340,
+    show: false,
+    transparent: true,
+    frame: false,
+    resizable: false,
+    movable: false,
+    skipTaskbar: true,
+    hasShadow: true,
+    roundedCorners: true,
+    alwaysOnTop: true,
+    vibrancy: 'popover',
+    visualEffectState: 'active',
+    backgroundMaterial: 'acrylic',
+    webPreferences: { preload: path.join(__dirname, 'menu-preload.js') },
+  })
+  menu.setAlwaysOnTop(true, 'screen-saver', 2)
+  menu.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  menu.on('blur', () => menu?.hide())
+  menu.loadFile(path.join(__dirname, 'menu.html'))
+}
+
+ipcMain.on('menu-size', (_event, height) => menu?.setSize(MENU_WIDTH, Math.min(600, height)))
+
+// The overlay asks for the menu with Momo's box in window coordinates.
+ipcMain.on('open-menu', (_event, { x, y, w, h, isPlaying }) => {
+  if (!menu) return
+  const { bounds, workArea } = screen.getPrimaryDisplay()
+  const [, height] = menu.getSize()
+  const right = bounds.x + x + w / 2 + 8
+  const left = bounds.x + x - w / 2 - MENU_WIDTH - 8
+  const menuX = right + MENU_WIDTH < workArea.x + workArea.width ? right : left
+  const menuY = Math.max(workArea.y + 8, Math.min(workArea.y + workArea.height - height - 8, bounds.y + y - h / 2 - height / 2))
+  menu.setPosition(Math.round(menuX), Math.round(menuY))
+  menu.show()
+  menu.focus()
+  menu.webContents.send('open', { isPlaying })
+})
+
+ipcMain.on('menu-action', (_event, { action, text }) => {
+  menu?.hide()
+  if (action === 'close') return
+  if (action === 'ask') {
+    inbox.push({ type: 'ask', text: String(text).slice(0, 400) })
+    win?.webContents.send('action', { action: 'asked' })
+    return
+  }
+  if (action === 'music-app') {
+    toggleMusicApp().then(said => win?.webContents.send('action', { action: 'say', text: said }))
+    return
+  }
+  win?.webContents.send('action', { action })
+})
+
+/** Play or pause Spotify or Apple Music, whichever is open (macOS asks once to let Momo control it). */
+function toggleMusicApp() {
+  if (process.platform !== 'darwin') return Promise.resolve('I can only do that on a Mac for now 🎧')
+  const isOpen = app => new Promise(resolve => execFile('pgrep', ['-x', app], error => resolve(!error)))
+  const playPause = app =>
+    new Promise(resolve =>
+      execFile('osascript', ['-e', `tell application "${app}" to playpause`], error =>
+        resolve(error ? `I could not reach ${app}. Did you let me control it? 🙈` : `${app}: play / pause 🎶`),
+      ),
+    )
+  return isOpen('Spotify').then(spotify =>
+    spotify ? playPause('Spotify') : isOpen('Music').then(music => (music ? playPause('Music') : 'Open Spotify or Music first 🎧')),
+  )
+}
+
 function createTray() {
   const icon = nativeImage.createFromPath(path.join(__dirname, 'sprites', 'tray.png'))
   tray = new Tray(icon.resize({ height: 18 }))
@@ -187,6 +278,16 @@ function startServer() {
   const server = http.createServer((request, response) => {
     if (request.method === 'GET' && request.url === '/health') {
       response.end('ok')
+      return
+    }
+    if (request.method === 'GET' && request.url === '/inbox') {
+      if (request.headers['x-momo-token'] !== TOKEN) {
+        response.statusCode = 403
+        response.end()
+        return
+      }
+      response.setHeader('content-type', 'application/json')
+      response.end(JSON.stringify(inbox.splice(0)))
       return
     }
     // Where Momo is and how he feels, for checking that he moves.
@@ -278,6 +379,8 @@ app.whenReady().then(() => {
   if (process.platform === 'darwin') app.dock?.hide()
   createWindow()
   createBubble()
+  createMenu()
+  writeToken()
   startCaret()
   createTray()
   startServer()

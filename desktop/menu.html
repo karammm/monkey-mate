@@ -1,0 +1,83 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'" />
+    <title>Momo</title>
+    <style>
+      /* The window is the system's frosted glass; this is the sheen, the rows and the text. */
+      :root {
+        --text: #1d1b22;
+        --muted: rgba(29, 27, 34, 0.55);
+        --row: rgba(255, 255, 255, 0.0);
+        --row-hover: rgba(255, 255, 255, 0.38);
+        --edge: rgba(255, 255, 255, 0.7);
+        --field: rgba(255, 255, 255, 0.45);
+        --accent: #e8836f;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --text: #f4f2f7;
+          --muted: rgba(244, 242, 247, 0.55);
+          --row-hover: rgba(255, 255, 255, 0.12);
+          --edge: rgba(255, 255, 255, 0.28);
+          --field: rgba(0, 0, 0, 0.22);
+          --accent: #f3a898;
+        }
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; background: transparent; overflow: hidden; }
+      body {
+        font: 500 13.5px/1.35 -apple-system, "SF Pro Text", "Segoe UI Variable", "Segoe UI", sans-serif;
+        color: var(--text);
+        padding: 8px;
+        border-radius: 16px;
+        box-shadow: inset 0 1px 0 var(--edge), inset 0 0 0 0.5px var(--edge);
+        -webkit-font-smoothing: antialiased;
+        user-select: none;
+      }
+      header { padding: 4px 8px 6px; font-size: 12px; color: var(--muted); }
+      button {
+        all: unset;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+        padding: 7px 8px;
+        border-radius: 9px;
+        cursor: pointer;
+      }
+      button:hover, button:focus-visible { background: var(--row-hover); }
+      button .icon { width: 20px; text-align: center; }
+      .ask { display: flex; gap: 6px; padding: 6px 4px 2px; }
+      input {
+        all: unset;
+        flex: 1;
+        min-width: 0;
+        padding: 7px 10px;
+        border-radius: 9px;
+        background: var(--field);
+        box-shadow: inset 0 0 0 0.5px var(--edge);
+      }
+      input::placeholder { color: var(--muted); }
+      .note { padding: 6px 8px 2px; font-size: 11.5px; color: var(--muted); }
+      hr { border: 0; height: 0.5px; background: var(--edge); margin: 4px 6px; }
+    </style>
+  </head>
+  <body>
+    <header>What should Momo do?</header>
+    <button data-action="tune"><span class="icon">🎵</span><span id="tune-label">Play a tune</span></button>
+    <button data-action="music-app"><span class="icon">⏯️</span>Play / pause my music</button>
+    <button data-action="dance"><span class="icon">💃</span>Dance</button>
+    <button data-action="joke"><span class="icon">😂</span>Tell me a joke</button>
+    <button data-action="status"><span class="icon">💬</span>What's happening?</button>
+    <button data-action="pet"><span class="icon">💗</span>Pet Momo</button>
+    <button data-action="nap"><span class="icon">😴</span>Take a nap (10 min)</button>
+    <hr />
+    <form class="ask" id="ask">
+      <input id="ask-text" type="text" placeholder="Ask Claude… e.g. run the tests" maxlength="400" />
+    </form>
+    <div class="note">Momo puts it in Claude's prompt box. Press Enter there to send it.</div>
+    <script src="menu.js"></script>
+  </body>
+</html>

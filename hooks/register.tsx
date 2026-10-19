@@ -76,6 +76,43 @@ async function showActivity($: EngineInterface, text: string | null) {
   }
 }
 
+// "Ask Claude…" in Momo's menu: Momo Desktop keeps the request until this plugin collects it with the key
+// it wrote to ~/.monkey-mate/desktop-token. The request goes into the prompt box as a draft; you send it.
+let desktopKey: string | null = null
+
+async function collectRequests($: EngineInterface) {
+  if (!isDesktopUp) {
+    return
+  }
+  if (desktopKey === null) {
+    const home = (await $.env.get('HOME')) ?? (await $.env.get('USERPROFILE'))
+    const key = home ? await $.fs.read(`${home}/.monkey-mate/desktop-token`).catch(() => '') : ''
+    desktopKey = key.trim() || null
+    if (desktopKey === null) {
+      return
+    }
+  }
+  const response = await $.http.fetch(`${DESKTOP}/inbox`, { headers: { 'x-momo-token': desktopKey } }).catch(() => null)
+  if (response?.status === 403) {
+    // Momo Desktop restarted with a new key.
+    desktopKey = null
+    return
+  }
+  if (!response?.ok) {
+    return
+  }
+  const requests = JSON.parse(response.text) as { type?: unknown; text?: unknown }[]
+  for (const request of requests) {
+    if (request.type !== 'ask' || typeof request.text !== 'string' || request.text.trim() === '') {
+      continue
+    }
+    const draft = await $.prompt.read()
+    const isEmpty = draft.text.trim() === ''
+    await $.prompt.fill({ text: isEmpty ? request.text : `\n${request.text}`, mode: isEmpty ? 'replace' : 'append' })
+    $.ui.toast('🐒 Momo put your request in the prompt box. Press Enter to send it.')
+  }
+}
+
 async function checkDesktop($: EngineInterface): Promise<boolean> {
   const response = await $.http.fetch(`${DESKTOP}/health`).catch(() => null)
   isDesktopUp = response?.ok === true
@@ -155,6 +192,7 @@ export const register: Register = on => {
     const now = await $.clock.now()
     await update($, moodAtom, mood => (mood.lastEventAt === 0 ? initialMood(now) : mood))
     $.clock.every(ANIMATION_MS, () => void animate($).catch(() => undefined))
+    $.clock.every(2000, () => void collectRequests($).catch(() => undefined))
     void $.ui.open({ id: PANE, title: 'Momo 🐒' }).then(({ isPlaced }) => {
       isPaneShown = isPlaced
     })
