@@ -1,0 +1,6 @@
+{
+  "name": "monkey-mate",
+  "description": "Momo, an emotional little white monkey companion for Claude Code.",
+  "owner": { "name": "karammm" },
+  "plugins": [{ "name": "monkey-mate", "source": "./" }]
+}
