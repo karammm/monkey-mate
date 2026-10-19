@@ -252,7 +252,7 @@ window.addEventListener('mousemove', event => {
   const over = isOverMomo(event.clientX, event.clientY) || drag !== null
   if (over !== hovering) {
     hovering = over
-    window.momo.setHover(over)
+    window.monkeyMate.setHover(over)
     canvas.style.cursor = over ? 'grab' : 'default'
   }
   if (drag) {
@@ -284,19 +284,19 @@ window.addEventListener('mouseup', () => {
   if (!moved) pet()
 })
 
-window.momo.onMood(({ emotion, text }) => {
+window.monkeyMate.onMood(({ emotion, text }) => {
   if (EMOTIONS.includes(emotion)) state.emotion = emotion
   state.lastNews = Date.now()
   if (text) state.bubble = { text, until: Date.now() + 7000 }
   // Momo reacts right away.
   if (momo.mode === 'idle') momo.rest = 0
 })
-window.momo.onFloor(floor => {
+window.monkeyMate.onFloor(floor => {
   state.floor = floor
   if (momo.mode === 'idle') momo.y = floor
 })
-window.momo.onPet(pet)
-window.momo.onSummon(() => {
+window.monkeyMate.onPet(pet)
+window.monkeyMate.onSummon(() => {
   momo.x = window.innerWidth / 2
   momo.y = state.floor - 200
   momo.vy = 0
@@ -304,6 +304,27 @@ window.momo.onSummon(() => {
   momo.mode = 'air'
   momo.target = null
   state.bubble = { text: 'Here I am!', until: Date.now() + 3000 }
+})
+
+// A quick tour of every mood, from the menu: handy to see what Momo can do.
+const TOUR = [
+  ['happy', 'Tests are green! 🎉'],
+  ['proud', 'Flawless streak. Banana break earned.'],
+  ['curious', 'Ooh, a new task! What are we building?'],
+  ['worried', 'Whoa! That command can destroy things.'],
+  ['angry', 'Same error twice! Try a different approach.'],
+  ['sleepy', 'Zzz... wake me when we code.'],
+  ['calm', 'All quiet. I am watching.'],
+]
+window.monkeyMate.onTour(() => {
+  TOUR.forEach(([emotion, text], index) =>
+    setTimeout(() => {
+      state.emotion = emotion
+      state.lastNews = Date.now()
+      state.bubble = { text, until: Date.now() + 3800 }
+      if (momo.mode === 'idle') momo.rest = 0
+    }, index * 4000),
+  )
 })
 
 window.addEventListener('resize', resize)
