@@ -37,6 +37,19 @@ export const reaction = (signal: Signal, counter: number): string | null => {
   return lines ? (lines[counter % lines.length] ?? null) : null
 }
 
+/** What Momo says Claude is busy with, from the tool it is about to use. */
+export const activityLine = (tool: string, command?: string, filePath?: string): string => {
+  const file = filePath?.split(/[\\/]/).filter(Boolean).pop()
+  if (file && /^(Edit|Write|MultiEdit|NotebookEdit)$/.test(tool)) return `Claude is editing ${file}`
+  if (command) return `Claude is running ${command.split('\n')[0]?.slice(0, 40) ?? ''}`
+  if (/^(Read|Grep|Glob|LS)$/.test(tool)) return 'Claude is reading the code'
+  if (/^(WebSearch|WebFetch)$/.test(tool)) return 'Claude is looking things up'
+  if (/^(Agent|Task)$/.test(tool)) return 'Claude asked a helper for a hand'
+  if (tool.startsWith('mcp__')) return 'Claude is using a connected tool'
+
+  return `Claude is using ${tool}`
+}
+
 /** Which of several signals Momo talks about: the most emotional one. */
 export const loudest = (signals: readonly Signal[]): Signal | undefined => {
   const order: Signal[] = ['risky', 'repeat-error', 'test-fail', 'build-fail', 'test-pass', 'build-ok', 'error']

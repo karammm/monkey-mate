@@ -4,6 +4,7 @@ const { contextBridge, ipcRenderer } = require('electron')
 
 contextBridge.exposeInMainWorld('monkeyMate', {
   onMood: callback => ipcRenderer.on('mood', (_event, mood) => callback(mood)),
+  onActivity: callback => ipcRenderer.on('activity', (_event, activity) => callback(activity)),
   onFloor: callback => ipcRenderer.on('floor', (_event, floor) => callback(floor)),
   onPet: callback => ipcRenderer.on('pet', () => callback()),
   onSummon: callback => ipcRenderer.on('summon', () => callback()),

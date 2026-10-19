@@ -3,6 +3,7 @@ import { describe, expect, test } from 'claude-code/testing'
 import { monkey, WIDTH } from '../hooks/art'
 import { closeTurn, describeSession, describeTurn, emptyLedger, hadTrouble, record } from '../hooks/ledger'
 import { applySignal, emotionOf, initialMood, settle, SLEEPY_AFTER_MS } from '../hooks/mood'
+import { activityLine } from '../hooks/phrases'
 import { classifyPrompt, classifyTool, countTests, isRisky } from '../hooks/signals'
 import type { Observation } from '../hooks/signals'
 
@@ -42,6 +43,16 @@ describe('signals', () => {
     expect(classifyPrompt('perfect, thanks!')).toEqual(['praise'])
     expect(classifyPrompt('add a login page')).toEqual(['prompt'])
     expect(classifyPrompt('/momo changes')).toEqual([])
+  })
+})
+
+describe('activity', () => {
+  test('says what Claude is busy with', () => {
+    expect(activityLine('Edit', undefined, '/repo/src/app.ts')).toBe('Claude is editing app.ts')
+    expect(activityLine('Write', undefined, 'C:\\repo\\notes.md')).toBe('Claude is editing notes.md')
+    expect(activityLine('Bash', 'npm test')).toBe('Claude is running npm test')
+    expect(activityLine('Grep')).toBe('Claude is reading the code')
+    expect(activityLine('mcp__github__create_pr')).toBe('Claude is using a connected tool')
   })
 })
 

@@ -5,7 +5,7 @@ import type { Bubble, Emotion, Mood } from '../types'
 import { EMOJI } from './art'
 import { closeTurn, describeSession, describeTurn, emptyLedger, hadTrouble, record } from './ledger'
 import { applySignal, emotionOf, initialMood, resolveSignal, settle } from './mood'
-import { loudest, moodLine, reaction } from './phrases'
+import { activityLine, loudest, moodLine, reaction } from './phrases'
 import { classifyPrompt, classifyTool, errorKey } from './signals'
 import type { Observation, Signal } from './signals'
 import { SPRITE_WIDTH } from './sprite'
@@ -24,6 +24,8 @@ const bubbleAtom = atom({ plugin: 'monkey-mate', key: 'bubble' } as const, {
   text: 'Hi! I am Momo 🐒 your coding buddy.',
   lines: [],
 } as Bubble)
+
+const activityAtom = atom({ plugin: 'monkey-mate', key: 'activity' } as const, null as string | null)
 
 const ALERTS: readonly Signal[] = ['risky', 'repeat-error', 'test-fail']
 
@@ -59,6 +61,19 @@ async function tellDesktop($: EngineInterface, emotion: Emotion, text?: string) 
     .catch(() => {
       isDesktopUp = false
     })
+}
+
+/** Shows what Claude is doing, in the pane and on Momo Desktop; null when the turn is over. */
+async function showActivity($: EngineInterface, text: string | null) {
+  await update($, activityAtom, () => text)
+  if (isDesktopUp) {
+    const body = JSON.stringify({ working: text !== null, text: text ?? undefined })
+    await $.http
+      .fetch(`${DESKTOP}/activity`, { method: 'POST', headers: { 'content-type': 'application/json' }, body })
+      .catch(() => {
+        isDesktopUp = false
+      })
+  }
 }
 
 async function checkDesktop($: EngineInterface): Promise<boolean> {
@@ -153,12 +168,18 @@ export const register: Register = on => {
     const signals = classifyPrompt(e.text)
     if (signals.length > 0) {
       await feel($, signals)
+      await showActivity($, 'Claude is thinking')
     }
 
     return next(e)
   }).catch(($, e, next) => next(e))
 
   on('tool.call', async ($, e, next) => {
+    const input = e as ToolInput
+    // Subagents use tools too; only the main conversation's steps are shown.
+    if (e.agentId === undefined) {
+      await showActivity($, activityLine(String(e.tool), asString(input.command), asString(input.file_path) ?? asString(input.notebook_path)))
+    }
     const ran = await next(e)
     if (ran.deny !== undefined) {
       return ran
@@ -169,7 +190,6 @@ export const register: Register = on => {
       return ran
     }
 
-    const input = e as ToolInput
     const result = ran.result as { type?: unknown } | undefined
     const observation: Observation = {
       tool: String(e.tool),
@@ -202,6 +222,7 @@ export const register: Register = on => {
     const lines = describeTurn(current)
     const isEmpty = Object.keys(current.files).length === 0 && current.commands.length === 0 && current.errors === 0
 
+    await showActivity($, null)
     await update($, ledgerAtom, closeTurn)
     await update($, moodAtom, mood => settle(mood, isTrouble))
 
@@ -275,7 +296,7 @@ export const register: Register = on => {
     lastMood = mood
     cells = drawStage(emotion)
 
-    return pane($, e, { emotion, mood, bubble: await read($, bubbleAtom) }, { stage, cells })
+    return pane($, e, { emotion, mood, bubble: await read($, bubbleAtom), activity: await read($, activityAtom) }, { stage, cells })
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
@@ -288,6 +309,7 @@ export const register: Register = on => {
       emotion: emotionOf(mood, await $.clock.now()),
       mood,
       bubble: await read($, bubbleAtom),
+      activity: await read($, activityAtom),
     })
   })
 }

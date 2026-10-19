@@ -85,7 +85,7 @@ function startServer() {
         .catch(() => response.end('{}'))
       return
     }
-    if (request.method !== 'POST' || request.url !== '/mood') {
+    if (request.method !== 'POST' || (request.url !== '/mood' && request.url !== '/activity')) {
       response.statusCode = 404
       response.end()
       return
@@ -97,7 +97,12 @@ function startServer() {
     })
     request.on('end', () => {
       try {
-        const { emotion, text, score } = JSON.parse(body)
+        const { emotion, text, score, working } = JSON.parse(body)
+        if (request.url === '/activity') {
+          win?.webContents.send('activity', { working: working === true, text: String(text ?? '').slice(0, 120) })
+          response.end('ok')
+          return
+        }
         win?.webContents.send('mood', {
           emotion: String(emotion ?? 'calm'),
           text: String(text ?? '').slice(0, 200),

@@ -77,10 +77,17 @@ const rotZ = (p: V, c: V, angle: number): V => {
 
 type Part = 'fur' | 'ear' | 'eye' | 'nose' | 'foot'
 
+/**
+ * Which part of Momo to render: all of him, or the layers Momo Desktop animates on their own
+ * (the body without ears and tail, his right ear, his tail).
+ */
+export type Layer = 'all' | 'body' | 'ear' | 'tail'
+
 type Model = {
   pose: Pose
   eyeRadius: number
   earTilt: number
+  layer: Layer
 }
 
 const EYE_Y = 0.33
@@ -88,6 +95,7 @@ const EYE_X = 0.27
 const EYE_Z = 0.42
 const EAR_CENTER: V = [0.86, 0.72, -0.08]
 const EAR_SIZE: V = [0.5, 0.3, 0.07]
+const EAR_TILT = 0.5
 const TAIL: V[] = [
   [0.22, -0.8, -0.2],
   [0.48, -0.76, -0.16],
@@ -108,6 +116,12 @@ function scene(p0: V, m: Model): { d: number; part: Part } {
   }
   const ax: V = [Math.abs(p[0]), p[1], p[2]]
 
+  if (m.layer === 'ear') {
+    // Only the ear on the viewer's right; Momo Desktop mirrors it for the other one.
+    const d = p[0] > 0 ? ellipsoid(rotZ(p, EAR_CENTER, -m.earTilt), EAR_CENTER, EAR_SIZE) : 1
+    return { d, part: 'ear' }
+  }
+
   const head = ellipsoid(p, [0, 0.3, 0], [0.68, 0.58, 0.55])
   const cheeks = ellipsoid(ax, [0.4, 0.1, 0.12], [0.32, 0.26, 0.3])
   const muzzle = ellipsoid(p, [0, 0.1, 0.4], [0.21, 0.14, 0.14])
@@ -127,7 +141,8 @@ function scene(p0: V, m: Model): { d: number; part: Part } {
   for (let i = 2; i < TAIL.length; i += 1) {
     tail = smin(tail, capsule(p, TAIL[i - 1] as V, TAIL[i] as V, 0.056 - i * 0.002), 0.05)
   }
-  fur = smin(fur, tail, 0.05)
+  if (m.layer === 'tail') return { d: tail, part: 'fur' }
+  if (m.layer === 'all') fur = smin(fur, tail, 0.05)
   const tuft = Math.min(
     ellipsoid(p, [0, 0.9, 0.05], [0.07, 0.11, 0.07]),
     ellipsoid(p, [-0.08, 0.86, 0.06], [0.06, 0.09, 0.06]),
@@ -145,10 +160,10 @@ function scene(p0: V, m: Model): { d: number; part: Part } {
   const eye = ellipsoid(ax, [EYE_X, EYE_Y, EYE_Z], [m.eyeRadius, m.eyeRadius, m.eyeRadius * 0.85])
   const nose = ellipsoid(p, [0, 0.2, 0.515], [0.065, 0.045, 0.04])
 
-  let best: { d: number; part: Part } = {
-    d: smin(ear, furAndFeet, 0.07),
-    part: ear < furAndFeet ? 'ear' : foot < fur ? 'foot' : 'fur',
-  }
+  let best: { d: number; part: Part } =
+    m.layer === 'body'
+      ? { d: furAndFeet, part: foot < fur ? 'foot' : 'fur' }
+      : { d: smin(ear, furAndFeet, 0.07), part: ear < furAndFeet ? 'ear' : foot < fur ? 'foot' : 'fur' }
   if (eye < best.d) best = { d: eye, part: 'eye' }
   if (nose < best.d) best = { d: nose, part: 'nose' }
   return best
@@ -351,6 +366,14 @@ export type RenderOptions = {
   span: number
   /** World y of the image's bottom edge. */
   bottom: number
+  /** Which part to render; all of Momo when left out. */
+  layer?: Layer
+}
+
+/** Where the ear and tail layers attach to the body, in world units: Momo Desktop swings them around these. */
+export const RIG = {
+  earPivot: [0.5, 0.53] as [number, number],
+  tailPivot: [TAIL[0]?.[0] ?? 0, TAIL[0]?.[1] ?? 0] as [number, number],
 }
 
 const toSrgb = (v: number) => Math.round(255 * Math.pow(clamp(v), 1 / 2.2))
@@ -361,7 +384,8 @@ export function render(emotion: Emotion, pose: Pose, isBlinking: boolean, option
   const model: Model = {
     pose,
     eyeRadius: face.eyes === 'wide' ? 0.215 : 0.195,
-    earTilt: pose === 'jump' ? 0.75 : 0.5,
+    earTilt: pose === 'jump' && options.layer !== 'ear' ? 0.75 : EAR_TILT,
+    layer: options.layer ?? 'all',
   }
   const scale = options.span / options.width
   const rows: RGBA[][] = []

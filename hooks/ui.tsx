@@ -13,11 +13,11 @@ export const PANE_MIN_COLUMNS = 110
 
 export const STAGE_KEY = 'stage'
 
-type View = { emotion: Emotion; mood: Mood; bubble: Bubble }
+type View = { emotion: Emotion; mood: Mood; bubble: Bubble; activity: string | null }
 
 type Scene = { stage: Stage; cells: string }
 
-export function pane($: EngineInterface, e: ResolveInput, { emotion, mood, bubble }: View, scene: Scene) {
+export function pane($: EngineInterface, e: ResolveInput, { emotion, mood, bubble, activity }: View, scene: Scene) {
   const { Box, Text } = $.ui.resolve(e)
   const color = COLOR[emotion]
   const sign = mood.score > 0 ? '+' : ''
@@ -48,6 +48,7 @@ export function pane($: EngineInterface, e: ResolveInput, { emotion, mood, bubbl
         </Text>
       </Box>
       {picture}
+      {activity !== null && <Text dimColor>💭 {activity}...</Text>}
       <Box borderStyle="round" borderColor={color} flexDirection="column" paddingX={1}>
         <Text wrap="wrap">{bubble.text}</Text>
         {bubble.lines.map(line => (
@@ -59,13 +60,13 @@ export function pane($: EngineInterface, e: ResolveInput, { emotion, mood, bubbl
   )
 }
 
-export function band($: EngineInterface, e: ResolveInput, { emotion, bubble }: View) {
+export function band($: EngineInterface, e: ResolveInput, { emotion, bubble, activity }: View) {
   const { Box, Text } = $.ui.resolve(e)
 
   return (
     <Box>
       <Text color={COLOR[emotion]}>
-        🐒 {EMOJI[emotion]} Momo: <Text wrap="truncate-end">{bubble.text}</Text>
+        🐒 {EMOJI[emotion]} Momo: <Text wrap="truncate-end">{activity !== null ? `💭 ${activity}...` : bubble.text}</Text>
       </Text>
     </Box>
   )

@@ -34,7 +34,34 @@ const state = {
   bubble: { text: 'Hi! I am Momo 🐒', until: Date.now() + 6000 },
   floor: window.innerHeight,
   hearts: [],
+  // What Claude is doing right now, while a turn runs: { text } or null.
+  work: null,
 }
+
+// How the ears and tail move per mood: ear angle (radians, up is positive), wiggle size and speed (Hz).
+const EARS = {
+  happy: { base: 0.1, amp: 0.12, hz: 2 },
+  proud: { base: 0.15, amp: 0.05, hz: 0.8 },
+  calm: { base: 0, amp: 0.03, hz: 0.5 },
+  curious: { base: 0.22, amp: 0.08, hz: 0.7 },
+  worried: { base: -0.25, amp: 0.03, hz: 6 },
+  angry: { base: -0.38, amp: 0.04, hz: 9 },
+  sleepy: { base: -0.4, amp: 0.03, hz: 0.3 },
+  working: { base: 0.18, amp: 0.06, hz: 3 },
+}
+const TAILS = {
+  happy: { amp: 0.25, hz: 2.5 },
+  proud: { amp: 0.15, hz: 1.5 },
+  calm: { amp: 0.1, hz: 0.6 },
+  curious: { amp: 0.2, hz: 1 },
+  worried: { amp: 0.08, hz: 3 },
+  angry: { amp: 0.3, hz: 5 },
+  sleepy: { amp: 0.04, hz: 0.3 },
+  working: { amp: 0.18, hz: 2 },
+}
+// While Claude works Momo paces about busily.
+const WORKING = { rest: [20, 50], height: [12, 26], reach: 0.03, perch: 0 }
+const RIG = window.MOMO_RIG
 
 // Momo's feet: x is his middle, y is where he stands.
 const momo = {
@@ -49,6 +76,7 @@ const momo = {
   blink: 120,
   facingLeft: true,
   target: null, // where an air jump means to land: { y } for a perch
+  twitch: [0, 0], // frames left of a quick twitch, left ear then right
 }
 
 const between = ([low, high]) => low + (high - low) * Math.random()
@@ -56,6 +84,11 @@ const width = () => 220 * scale
 const height = () => 160 * scale
 
 function load() {
+  for (const part of ['ear', 'tail']) {
+    const image = new Image()
+    image.src = `sprites/${part}.png`
+    sprites[part] = image
+  }
   for (const emotion of EMOTIONS) {
     for (const pose of ['sit', 'jump', 'squash']) {
       for (const blink of [0, 1]) {
@@ -97,7 +130,8 @@ function leap(plan) {
 
 function step() {
   const mood = emotion()
-  const plan = PLANS[mood]
+  const plan = state.work && mood !== 'sleepy' ? WORKING : PLANS[mood]
+  momo.twitch = momo.twitch.map(frames => (frames > 0 ? frames - 1 : Math.random() < 0.002 ? 10 : 0))
   momo.blink = momo.blink <= 0 ? 90 + Math.random() * 180 : momo.blink - 1
   momo.squash = Math.max(0, momo.squash - 1)
 
@@ -160,17 +194,15 @@ function draw() {
     ctx.fill()
   }
 
-  const blink = momo.blink < 6 && BLINKERS.has(mood) ? 1 : 0
-  const image = sprites[`${mood}-${poseOf()}-${blink}`] ?? sprites[`${mood}-${poseOf()}-0`]
-  if (image?.complete) {
-    ctx.save()
-    if (momo.facingLeft) {
-      ctx.translate(momo.x * 2, 0)
-      ctx.scale(-1, 1)
-    }
-    ctx.drawImage(image, left, top, w, h)
-    ctx.restore()
+  ctx.save()
+  if (momo.facingLeft) {
+    ctx.translate(momo.x * 2, 0)
+    ctx.scale(-1, 1)
   }
+  ctx.translate(left, top)
+  ctx.scale(w / RIG.size[0], h / RIG.size[1])
+  drawMomo(mood)
+  ctx.restore()
 
   if (mood === 'sleepy') {
     const t = Date.now() / 600
@@ -187,10 +219,56 @@ function draw() {
     ctx.globalAlpha = 1
   }
 
-  if (state.bubble && Date.now() < state.bubble.until) drawBubble(state.bubble.text, momo.x, top + 8)
+  if (state.bubble && Date.now() < state.bubble.until) {
+    drawBubble(state.bubble.text, momo.x, top + 8)
+  } else if (state.work) {
+    const dots = '.'.repeat(1 + (Math.floor(Date.now() / 400) % 3))
+    drawBubble(`💭 ${state.work.text}${dots}`, momo.x, top + 8, true)
+  }
 }
 
-function drawBubble(text, x, bottom) {
+/** Momo in sprite pixels: tail, ears and body, the ears and tail swinging around their pivots. */
+function drawMomo(mood) {
+  const pose = poseOf()
+  const blink = momo.blink < 6 && BLINKERS.has(mood) ? 1 : 0
+  const body = sprites[`${mood}-${pose}-${blink}`] ?? sprites[`${mood}-${pose}-0`]
+  const t = performance.now() / 1000
+  const look = state.work && mood !== 'sleepy' ? 'working' : mood
+  const ears = EARS[look]
+  const tail = TAILS[look]
+  // In the air the ears trail behind: down while rising, up while falling.
+  const flap = momo.mode === 'air' ? Math.max(-0.45, Math.min(0.45, momo.vy * 0.04)) : 0
+  const earAngle = (side, phase) =>
+    ears.base + ears.amp * Math.sin(t * ears.hz * Math.PI * 2 + phase) + flap + (momo.twitch[side] > 0 ? 0.25 : 0)
+
+  // Squashing on landing pulls everything toward the ground.
+  const squash = pose === 'squash'
+  const ground = RIG.size[1] - 3
+  const at = ([x, y]) => (squash ? [110 + (x - 110) * 1.08, ground + (y - ground) * 0.9] : [x, y])
+
+  const swing = (image, pivot, angle, mirror) => {
+    if (!image?.complete) return
+    const [px, py] = at(pivot)
+    ctx.save()
+    if (mirror) {
+      ctx.translate(RIG.size[0], 0)
+      ctx.scale(-1, 1)
+    }
+    ctx.translate(px, py)
+    // Canvas y points down, so a lift (positive angle) turns counter-clockwise on screen.
+    ctx.rotate(-angle)
+    ctx.translate(-pivot[0], -pivot[1])
+    ctx.drawImage(image, 0, 0)
+    ctx.restore()
+  }
+
+  swing(sprites.tail, RIG.tail, tail.amp * Math.sin(t * tail.hz * Math.PI * 2), false)
+  swing(sprites.ear, RIG.ear, earAngle(1, 0), false)
+  swing(sprites.ear, RIG.ear, earAngle(0, 0.8), true)
+  if (body?.complete) ctx.drawImage(body, 0, 0)
+}
+
+function drawBubble(text, x, bottom, isThought = false) {
   ctx.font = '500 14px -apple-system, "Segoe UI", sans-serif'
   const lines = wrap(text, 240)
   const lineHeight = 19
@@ -199,20 +277,28 @@ function drawBubble(text, x, bottom) {
   const left = Math.max(8, Math.min(window.innerWidth - w - 8, x - w / 2))
   const top = Math.max(8, bottom - h - 14)
 
-  ctx.fillStyle = 'rgba(255, 252, 246, 0.97)'
+  ctx.fillStyle = isThought ? 'rgba(240, 244, 255, 0.97)' : 'rgba(255, 252, 246, 0.97)'
   ctx.strokeStyle = 'rgba(120, 105, 95, 0.55)'
   ctx.lineWidth = 1.5
   ctx.beginPath()
   ctx.roundRect(left, top, w, h, 12)
   ctx.fill()
   ctx.stroke()
-  // The tail, pointing at Momo.
+  // The tail, pointing at Momo: a little point for speech, two puffs for a thought.
   const tail = Math.max(left + 16, Math.min(left + w - 16, x))
   ctx.beginPath()
-  ctx.moveTo(tail - 7, top + h - 1)
-  ctx.lineTo(tail, top + h + 10)
-  ctx.lineTo(tail + 7, top + h - 1)
-  ctx.fill()
+  if (isThought) {
+    ctx.arc(tail, top + h + 6, 4, 0, Math.PI * 2)
+    ctx.moveTo(tail + 4, top + h + 14)
+    ctx.arc(tail + 2, top + h + 14, 2.5, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.stroke()
+  } else {
+    ctx.moveTo(tail - 7, top + h - 1)
+    ctx.lineTo(tail, top + h + 10)
+    ctx.lineTo(tail + 7, top + h - 1)
+    ctx.fill()
+  }
 
   ctx.fillStyle = '#2b2622'
   lines.forEach((line, index) => ctx.fillText(line, left + 12, top + 22 + index * lineHeight))
@@ -289,6 +375,11 @@ window.addEventListener('mouseup', () => {
   if (!moved) pet()
 })
 
+window.monkeyMate.onActivity(({ working, text }) => {
+  state.work = working ? { text: text || 'Claude is working' } : null
+  state.lastNews = Date.now()
+  if (working && momo.mode === 'idle') momo.rest = 0
+})
 window.monkeyMate.onMood(({ emotion, text }) => {
   if (EMOTIONS.includes(emotion)) state.emotion = emotion
   state.lastNews = Date.now()

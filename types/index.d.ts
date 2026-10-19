@@ -60,6 +60,8 @@ declare module 'claude-code' {
       mood: Mood
       ledger: Ledger
       bubble: Bubble
+      /** What Claude is doing right now while a turn runs, or null between turns. */
+      activity: string | null
     }
   }
 }
