@@ -129,12 +129,14 @@ npm start            # Windows and Linux
   tests" and Momo puts it in Claude Code's prompt box for you to send. Nothing runs without your Enter.
 - **Say "Momo"** (macOS) and he listens: "Momo, what's happening?", "Momo, what changed?", "Momo, tell me a
   joke", "Momo, dance", "Momo, stop". He answers out loud in a cute voice, with his mouth moving. Anything else
-  ("Momo, run the tests") goes into Claude Code's prompt box for you to send. He only ever talks when you talk
-  to him; everything else stays in his bubble.
+  ("Momo, run the tests") goes into Claude Code's prompt box for you to send. He only ever talks when you call
+  him by name; everything else stays in his bubble. "Momo, mute" (or 🔇 Mute Momo in his menus) silences him.
+- His voice is a natural AI voice (Kokoro, running on your computer) raised to a small boy's pitch, with little
+  monkey squeaks and "ooh ooh"s. The voice model (about 90 MB) downloads once, the first time he talks. Pick
+  Puck, Liam, Echo or Michael under Voice in the 🐒 menu-bar menu.
 - Listening for his name keeps the microphone on (macOS shows its orange dot). Speech is turned into text by
   Apple's recognizer, on your Mac whenever it supports that, and he ignores everything until he hears "Momo".
-  Turn it off in his menu and use push-to-talk instead: **⌥M** or 🎤 Talk to Momo. Pick his voice (Cute, Tiny,
-  Soft) from the 🐒 menu-bar icon.
+  Turn it off in his menu and use push-to-talk instead: **⌥M** or 🎤 Talk to Momo (he answers in his bubble).
 - **Hover** over him and he giggles ("Hehe! That tickles 😆"); rub the mouse back and forth and he gets
   playfully grumpy ("Hey! Stop teasing me 😤").
 - He talks in frosted **liquid-glass** bubbles (the system's own glass material) and thinks out loud while

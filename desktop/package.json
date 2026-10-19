@@ -13,5 +13,8 @@
   },
   "devDependencies": {
     "electron": "33.2.1"
+  },
+  "dependencies": {
+    "kokoro-js": "1.2.1"
   }
 }

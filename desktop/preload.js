@@ -20,6 +20,8 @@ contextBridge.exposeInMainWorld('monkeyMate', {
   musicApp: () => ipcRenderer.send('menu-action', { action: 'music-app' }),
   voice: request => ipcRenderer.invoke('voice', request),
   onVoicePreset: callback => ipcRenderer.on('voice-preset', (_event, preset) => callback(preset)),
+  onMute: callback => ipcRenderer.on('mute', (_event, muted) => callback(muted)),
+  muted: muted => ipcRenderer.send('muted', muted),
   onHearing: callback => ipcRenderer.on('hearing', (_event, heard) => callback(heard)),
   onAction: callback => ipcRenderer.on('action', (_event, message) => callback(message)),
   onSize: callback => ipcRenderer.on('size', (_event, size) => callback(size)),

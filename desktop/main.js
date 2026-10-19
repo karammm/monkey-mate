@@ -15,6 +15,7 @@ let win = null
 let tray = null
 let bubble = null
 let menu = null
+let trayMenu = null
 
 // Requests for Claude typed into Momo's menu wait here until the monkey-mate plugin collects them.
 // Only the plugin can: it must send the key in ~/.monkey-mate/desktop-token, a file only you can read.
@@ -254,10 +255,11 @@ function onHeard(text) {
 /** The request is over: after a pause, or 20 seconds at most. */
 function finishTurn() {
   const request = turn?.request.trim() ?? ''
+  const wasPushToTalk = turn?.pushToTalk === true
   turn = null
   ear('reset')
   if (!listenForName && earsOn) ear('stop')
-  win?.webContents.send('hearing', { request })
+  win?.webContents.send('hearing', { request, byName: !wasPushToTalk })
 }
 
 setInterval(() => {
@@ -286,24 +288,78 @@ ipcMain.on('speaking', (_event, speaking) => {
   isSpeaking = speaking === true
   if (!isSpeaking && earsOn) setTimeout(() => ear('reset'), 250)
 })
+// Keeps the menu-bar "Mute Momo" tick in step with mutes from his click menu or "Momo, mute".
+ipcMain.on('muted', (_event, muted) => {
+  const item = trayMenu?.getMenuItemById('mute')
+  if (item) item.checked = muted === true
+})
 ipcMain.on('ask', (_event, text) => inbox.push({ type: 'ask', text: String(text).slice(0, 400) }))
 
-// Momo's voice (macOS): the system voice says the line a little slowly into a sound file; Momo Desktop
-// plays it back faster, which makes it higher and cuter but still clear. Elsewhere the page speaks.
-const VOICES = { cute: { voice: 'Samantha', rate: 150 }, tiny: { voice: 'Junior', rate: 145 }, soft: { voice: 'Samantha', rate: 165 } }
-ipcMain.handle('voice', (_event, { text, preset }) => {
-  if (process.platform !== 'darwin') return null
-  const { voice, rate } = VOICES[preset] ?? VOICES.cute
+// Momo's voice: a natural AI voice (Kokoro, running on this computer) spoken a little slowly; Momo
+// Desktop plays it back faster, which makes it a small boy's voice. The voice model (about 90 MB) is
+// downloaded once, the first time it is needed; until then, and if it ever fails, the Mac's own Junior
+// voice stands in.
+const VOICES = ['am_puck', 'am_liam', 'am_echo', 'am_michael']
+let kokoro = null
+function loadKokoro() {
+  kokoro ??= (async () => {
+    const { env } = await import('@huggingface/transformers')
+    env.cacheDir = path.join(app.getPath('userData'), 'voice-models')
+    const { KokoroTTS } = await import('kokoro-js')
+    return KokoroTTS.from_pretrained('onnx-community/Kokoro-82M-v1.0-ONNX', { dtype: 'q8', device: 'cpu' })
+  })()
+  kokoro.catch(() => {
+    kokoro = null
+  })
+  return kokoro
+}
+
+/** 16-bit mono WAV bytes from float samples. */
+function wavBytes(samples, rate) {
+  const data = Buffer.alloc(samples.length * 2)
+  samples.forEach((sample, index) => data.writeInt16LE(Math.round(Math.max(-1, Math.min(1, sample)) * 32767), index * 2))
+  const header = Buffer.alloc(44)
+  header.write('RIFF', 0)
+  header.writeUInt32LE(36 + data.length, 4)
+  header.write('WAVEfmt ', 8)
+  header.writeUInt32LE(16, 16)
+  header.writeUInt16LE(1, 20)
+  header.writeUInt16LE(1, 22)
+  header.writeUInt32LE(rate, 24)
+  header.writeUInt32LE(rate * 2, 28)
+  header.writeUInt16LE(2, 32)
+  header.writeUInt16LE(16, 34)
+  header.write('data', 36)
+  header.writeUInt32LE(data.length, 40)
+  return new Uint8Array(Buffer.concat([header, data]))
+}
+
+function macVoice(text) {
+  if (process.platform !== 'darwin') return Promise.resolve(null)
   const file = path.join(os.tmpdir(), `momo-${crypto.randomBytes(6).toString('hex')}.wav`)
   return new Promise(resolve =>
-    execFile('say', ['-v', voice, '-r', `${rate}`, '--file-format=WAVE', '--data-format=LEI16@22050', '-o', file, String(text).slice(0, 300)], error => {
+    execFile('say', ['-v', 'Junior', '-r', '160', '--file-format=WAVE', '--data-format=LEI16@22050', '-o', file, text], error => {
       if (error) return resolve(null)
       const bytes = fs.readFileSync(file)
       fs.rmSync(file, { force: true })
-      resolve(new Uint8Array(bytes))
+      resolve({ bytes: new Uint8Array(bytes), speed: 1.12 })
     }),
   )
+}
+
+ipcMain.handle('voice', async (_event, { text, voice }) => {
+  const line = String(text).slice(0, 300)
+  try {
+    const tts = await Promise.race([loadKokoro(), new Promise((_, reject) => setTimeout(() => reject(new Error('still loading')), 1500))])
+    const audio = await tts.generate(line, { voice: VOICES.includes(voice) ? voice : VOICES[0], speed: 0.82 })
+    return { bytes: wavBytes(audio.audio, audio.sampling_rate), speed: 1.28 }
+  } catch {
+    // The model is still downloading (or could not load): the Mac voice speaks this time.
+    return macVoice(line)
+  }
 })
+// Get the voice ready in the background, so his first answer is not slow.
+app.whenReady().then(() => setTimeout(() => loadKokoro().catch(() => undefined), 3000))
 
 // Momo's click menu: a small glass window beside him.
 const MENU_WIDTH = 260
@@ -386,33 +442,34 @@ function createTray() {
   const icon = nativeImage.createFromPath(path.join(__dirname, 'sprites', 'tray.png'))
   tray = new Tray(icon.resize({ height: 18 }))
   tray.setToolTip('Momo')
-  tray.setContextMenu(
-    Menu.buildFromTemplate([
-      { label: 'Pet Momo', click: () => win?.webContents.send('pet') },
-      { label: 'Call Momo here', click: () => win?.webContents.send('summon') },
-      { label: 'Show all his moods', click: () => win?.webContents.send('tour') },
-      {
-        label: 'Voice',
-        submenu: [
-          ['cute', 'Cute'],
-          ['tiny', 'Tiny'],
-          ['soft', 'Soft'],
-        ].map(([preset, label]) => ({ label, click: () => win?.webContents.send('voice-preset', preset) })),
-      },
-      ...(caret
-        ? [{ label: 'Let Momo see where I type…', click: () => askCaret('ask') }]
-        : []),
-      {
-        label: 'Size',
-        submenu: ['small', 'medium', 'large'].map(size => ({
-          label: size[0].toUpperCase() + size.slice(1),
-          click: () => win?.webContents.send('size', size),
-        })),
-      },
-      { type: 'separator' },
-      { label: 'Quit Momo', click: () => app.quit() },
-    ]),
-  )
+  trayMenu = Menu.buildFromTemplate([
+    { label: 'Pet Momo', click: () => win?.webContents.send('pet') },
+    { label: 'Call Momo here', click: () => win?.webContents.send('summon') },
+    { label: 'Show all his moods', click: () => win?.webContents.send('tour') },
+    { label: 'Mute Momo', type: 'checkbox', id: 'mute', click: item => win?.webContents.send('mute', item.checked) },
+    {
+      label: 'Voice',
+      submenu: [
+        ['am_puck', 'Puck (playful)'],
+        ['am_liam', 'Liam (bright)'],
+        ['am_echo', 'Echo (soft)'],
+        ['am_michael', 'Michael (clear)'],
+      ].map(([voice, label]) => ({ label, click: () => win?.webContents.send('voice-preset', voice) })),
+    },
+    ...(caret
+      ? [{ label: 'Let Momo see where I type…', click: () => askCaret('ask') }]
+      : []),
+    {
+      label: 'Size',
+      submenu: ['small', 'medium', 'large'].map(size => ({
+        label: size[0].toUpperCase() + size.slice(1),
+        click: () => win?.webContents.send('size', size),
+      })),
+    },
+    { type: 'separator' },
+    { label: 'Quit Momo', click: () => app.quit() },
+  ])
+  tray.setContextMenu(trayMenu)
 }
 
 function startServer() {

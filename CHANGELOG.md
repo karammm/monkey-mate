@@ -3,7 +3,8 @@
 ## 0.5.0
 
 - Say "Momo" and talk to him (macOS): he answers out loud, and only then; other requests go into Claude Code's prompt box
-- A cute voice (the system voice played back faster), with Cute, Tiny and Soft presets and a mouth that follows it
+- A natural small-boy voice (Kokoro AI voice, on your computer) with monkey squeaks, and a mouth that follows it
+- Mute Momo from his menus or by saying "Momo, mute"
 - Push-to-talk (menu or ⌥M) when listening for his name is off
 - Momo Desktop runs as Momo.app on macOS, with its own name, icon and permission descriptions
 

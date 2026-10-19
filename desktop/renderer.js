@@ -26,7 +26,7 @@ const PLANS = {
 
 // Momo talks only when you talk to him: say "Momo" (or use push-to-talk) and he answers out loud.
 // Everything else stays in his bubble. Settings are switches in his menus and are remembered.
-const settings = { voice: true, listenForName: true, preset: 'cute' }
+const settings = { muted: false, listenForName: true, voice: 'am_puck' }
 try {
   Object.assign(settings, JSON.parse(localStorage.getItem('settings') ?? '{}'))
 } catch {}
@@ -36,14 +36,12 @@ const saveSettings = () => {
   } catch {}
 }
 
-// Played back faster than it was spoken: higher and cuter, still clear.
-const SPEEDS = { cute: 1.32, tiny: 1.42, soft: 1.15 }
 let audio = null
 let playing = null
 
 /** Says a reply out loud in Momo's voice, his mouth moving with it. */
 async function speak(text) {
-  if (!settings.voice) return
+  if (settings.muted) return
   const words = text
     // An emoji between words becomes a short pause: "Done ✅ Changed app.ts" → "Done. Changed app.ts".
     .replace(/\s*(?:\p{Extended_Pictographic}|[✓✔])[\uFE0F\u200D]*\s*(?=\p{L})/gu, '. ')
@@ -53,13 +51,18 @@ async function speak(text) {
   if (!words) return
   stopSpeaking()
   window.monkeyMate.speaking(true)
-  const bytes = await window.monkeyMate.voice({ text: words, preset: settings.preset })
-  if (!bytes) return speakWithPage(words)
+  // A monkey touch: now and then an "ooh ooh" or a giggle around what he says.
+  const spoken = `${Math.random() < 0.35 ? 'Ooh ooh! ' : ''}${words}${Math.random() < 0.2 ? ' Hee hee!' : ''}`
+  const voice = await window.monkeyMate.voice({ text: spoken, voice: settings.voice })
+  if (!voice) return speakWithPage(words)
   audio ??= new AudioContext()
+  const { bytes } = voice
   const buffer = await audio.decodeAudioData(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength))
+  const at = chirp()
   const source = audio.createBufferSource()
   source.buffer = buffer
-  source.playbackRate.value = SPEEDS[settings.preset] ?? SPEEDS.cute
+  // Played back faster than it was spoken: a small boy's voice.
+  source.playbackRate.value = voice.speed
   const loudness = audio.createAnalyser()
   loudness.fftSize = 512
   source.connect(loudness).connect(audio.destination)
@@ -69,7 +72,32 @@ async function speak(text) {
     momo.talking = false
     window.monkeyMate.speaking(false)
   }
-  source.start()
+  source.start(at)
+}
+
+/** Momo's little monkey squeak before he talks; returns when it is done (audio clock time). */
+function chirp() {
+  const now = audio.currentTime
+  const level = audio.createGain()
+  level.gain.value = 0.12
+  level.connect(audio.destination)
+  ;[
+    [0, 0.09, 700, 1500],
+    [0.13, 0.12, 820, 1750],
+  ].forEach(([start, length, from, to]) => {
+    const squeak = audio.createOscillator()
+    const shape = audio.createGain()
+    squeak.type = 'triangle'
+    squeak.frequency.setValueAtTime(from, now + start)
+    squeak.frequency.exponentialRampToValueAtTime(to, now + start + length)
+    shape.gain.setValueAtTime(0.0001, now + start)
+    shape.gain.exponentialRampToValueAtTime(1, now + start + length * 0.3)
+    shape.gain.exponentialRampToValueAtTime(0.0001, now + start + length)
+    squeak.connect(shape).connect(level)
+    squeak.start(now + start)
+    squeak.stop(now + start + length + 0.02)
+  })
+  return now + 0.32
 }
 
 /** Without a recorded voice (Windows, Linux) the page speaks, pitched up. */
@@ -573,7 +601,7 @@ function openMenu() {
   }
   const w = width()
   const h = height()
-  window.monkeyMate.openMenu({ x: momo.x, y: momo.y, w, h, isPlaying: tune !== null, voice: settings.voice, listenForName: settings.listenForName })
+  window.monkeyMate.openMenu({ x: momo.x, y: momo.y, w, h, isPlaying: tune !== null, muted: settings.muted, listenForName: settings.listenForName })
 }
 
 /** A mouse resting on Momo tickles him; rubbing back and forth fast teases him. */
@@ -604,10 +632,18 @@ function say1(text, ms = 1800) {
   state.bubble = { text, until: Date.now() + ms }
 }
 
-/** A reply to you: in his bubble and out loud. */
+/** A reply to you: in his bubble, and out loud only when you called him by name. */
+let isAskedByName = false
 function reply(text, ms = 4000) {
   say1(text, ms)
-  speak(text)
+  if (isAskedByName) speak(text)
+}
+
+function setMuted(muted) {
+  settings.muted = muted
+  saveSettings()
+  window.monkeyMate.muted(muted)
+  if (muted) stopSpeaking()
 }
 
 // The little tune: a cheerful loop made on the spot with Web Audio, soft enough not to startle.
@@ -683,7 +719,9 @@ window.monkeyMate.onHearing(event => {
     state.listening = { text: event.partial }
   } else if (typeof event.request === 'string') {
     state.listening = null
+    isAskedByName = event.byName === true
     answer(event.request)
+    isAskedByName = false
   } else if (event.error) {
     state.listening = null
     const why = {
@@ -700,6 +738,14 @@ function answer(request) {
   const said = request.toLowerCase()
   const is = pattern => pattern.test(said)
   if (!said) return reply('Yes? 🐒', 2500)
+  if (is(/\b(unmute|talk again|speak again|you can talk)\b/)) {
+    setMuted(false)
+    return reply('Yay, I can talk again! 🗣️', 2200)
+  }
+  if (is(/\b(mute|be quiet|stop talking|no talking)\b/)) {
+    setMuted(true)
+    return say1('Okay, I will stay quiet 🤐 Say “Momo, unmute” to hear me again.', 4000)
+  }
   if (is(/\b(stop|quiet|shush|shut up|enough)\b/)) {
     stopDance()
     return reply('Okay! 🤐', 1800)
@@ -742,11 +788,13 @@ function answer(request) {
 
 const EMOJI = { happy: '😄', proud: '🤩', calm: '🙂', curious: '🤔', worried: '😟', angry: '😠', sleepy: '😴' }
 
-window.monkeyMate.onVoicePreset(preset => {
-  settings.preset = preset
+window.monkeyMate.onVoicePreset(voice => {
+  settings.voice = voice
   saveSettings()
-  reply('Do you like this voice? 🐒', 2500)
+  say1('New voice! Say “Momo, hi” to hear it 🐒', 3000)
 })
+window.monkeyMate.onMute(muted => setMuted(muted))
+window.monkeyMate.muted(settings.muted)
 window.monkeyMate.listenForName(settings.listenForName)
 
 window.monkeyMate.onAction(({ action, text }) => {
@@ -775,14 +823,9 @@ window.monkeyMate.onAction(({ action, text }) => {
   } else if (action === 'asked') {
     say1('Put it in Claude’s prompt box ✨ Press Enter there!', 4500)
     gesture(['wave', 1200])
-  } else if (action === 'voice') {
-    settings.voice = !settings.voice
-    saveSettings()
-    if (settings.voice) reply('Yay, I can talk again! 🗣️', 2200)
-    else {
-      stopSpeaking()
-      say1('Okay, I will answer in my bubble only 🤐', 2500)
-    }
+  } else if (action === 'mute') {
+    setMuted(!settings.muted)
+    say1(settings.muted ? 'Okay, I will stay quiet 🤐' : 'Yay, I can talk again! 🗣️', 2500)
   } else if (action === 'listen-for-name') {
     settings.listenForName = !settings.listenForName
     saveSettings()
