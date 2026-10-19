@@ -87,6 +87,7 @@ In the Claude desktop app: click **+** next to the prompt box, then **Plugins** 
 | `/momo changes` | Summarise what changed in the last turn |
 | `/momo recap` | Summarise the whole session |
 | `/momo pet` | Cheer Momo up |
+| `/momo desktop` | Connect to Momo Desktop, or show how to start it |
 | `/momo quiet` | Stop warning toasts (the pane and status line still update) |
 | `/momo loud` | Turn warning toasts back on |
 
@@ -108,6 +109,25 @@ a 44×32-pixel version of the 3D renders above:
 
 He looks best in a terminal with 24-bit color such as iTerm2, Ghostty, kitty, WezTerm or Windows Terminal;
 others show the nearest colors. The pane needs about 46 columns to fit him.
+
+## Momo Desktop: the whole screen
+
+Inside Claude Code, Momo lives in his pane. To let him roam your **whole screen**, start Momo Desktop, a small
+companion app (Electron, macOS and Windows) that floats a transparent, click-through layer over everything:
+
+```bash
+cd desktop
+npm install    # first time only
+npm start
+```
+
+- Momo walks along the top of your Dock or taskbar, leaps around, and sometimes perches high up the screen.
+- **Drag** him anywhere and he sits right where you drop him. **Click** him to pet him.
+- He shows what the plugin says in a speech bubble, and his mood follows your Claude Code session.
+- Clicks anywhere else go straight through to your apps. Quit from the 🐒 menu-bar or tray icon.
+
+The plugin connects by itself (run `/momo desktop` to check). The two talk over `127.0.0.1:47321` only; nothing
+leaves your computer.
 
 ## How it works
 

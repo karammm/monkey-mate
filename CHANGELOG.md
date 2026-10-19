@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0
+
+- Momo Desktop (desktop/): Momo roams the whole screen in a transparent, click-through window; drag him anywhere, click to pet
+- The plugin sends Momo's mood and words to Momo Desktop when it runs; `/momo desktop` connects or explains how to start it
+- Momo no longer shows in the strip above the prompt while his pane is open
+
 ## 0.2.0
 
 - Momo is now a 3D plush: a white monkey with huge pink-lined ears, big glossy amber eyes, a curly tail, seven expressions and sunglasses when proud

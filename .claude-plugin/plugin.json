@@ -1,6 +1,6 @@
 {
   "name": "monkey-mate",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Momo, a little white monkey who watches your Claude Code session, cheers, worries and grumbles, and shows you what changed.",
   "types": "./types/index.d.ts",
   "author": { "name": "karammm" },

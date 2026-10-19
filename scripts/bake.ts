@@ -146,6 +146,18 @@ async function bakeImages() {
   writeFileSync('assets/momo-terminal.png', png(enlarge(row(terminal, 3), 5), DARK))
   console.log('assets/momo-terminal.png')
 
+  // Momo Desktop: one 220x160 render per mood, pose and blink, plus the menu-bar icon.
+  mkdirSync('desktop/sprites', { recursive: true })
+  for (const emotion of EMOTIONS) {
+    for (const pose of POSES) {
+      for (const blink of BLINKERS.has(emotion) ? [false, true] : [false]) {
+        writeFileSync(`desktop/sprites/${emotion}-${pose}-${blink ? 1 : 0}.png`, png(toImage(render(emotion, pose, blink, at(5, 2)))))
+      }
+    }
+  }
+  writeFileSync('desktop/sprites/tray.png', png(toImage(render('calm', 'sit', false, at(1, 3)))))
+  console.log('desktop/sprites')
+
   // The hop demo: the plugin's own animation code, drawn with the smooth 3D renders.
   const { initialActor, poseOf, step } = await import('../hooks/stage')
   const scale = 3

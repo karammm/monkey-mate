@@ -11,7 +11,7 @@ import type { Observation, Signal } from './signals'
 import { SPRITE_WIDTH } from './sprite'
 import { encodeCells, initialActor, paint, step } from './stage'
 import type { Stage } from './stage'
-import { band, pane, PANE_MIN_COLUMNS, STAGE_KEY } from './ui'
+import { band, pane, STAGE_KEY } from './ui'
 
 const PANE = 'momo'
 // About 14 frames a second: smooth hops without keeping the terminal busy.
@@ -37,6 +37,49 @@ let said = 0
 const say = async ($: EngineInterface, text: string, lines: string[] = []) => {
   said += 1
   await update($, bubbleAtom, () => ({ text, lines }))
+  if (isDesktopUp) {
+    await tellDesktop($, emotionOf(lastMood, await $.clock.now()), text)
+  }
+}
+
+// Momo Desktop: the companion app that lets Momo roam the whole screen (desktop/ in this plugin).
+// The person starts it; the plugin only talks to it when it is running.
+const DESKTOP = 'http://127.0.0.1:47321'
+let isDesktopUp = false
+let toldEmotion: Emotion | null = null
+// Whether Momo's pane is on screen; when it is, the band above the prompt stays out of the way.
+let isPaneShown = false
+
+/** Tells Momo Desktop how Momo feels and what he says; quiet when it is not running. */
+async function tellDesktop($: EngineInterface, emotion: Emotion, text?: string) {
+  toldEmotion = emotion
+  const body = JSON.stringify({ emotion, text, score: lastMood.score })
+  await $.http
+    .fetch(`${DESKTOP}/mood`, { method: 'POST', headers: { 'content-type': 'application/json' }, body })
+    .catch(() => {
+      isDesktopUp = false
+    })
+}
+
+async function checkDesktop($: EngineInterface): Promise<boolean> {
+  const response = await $.http.fetch(`${DESKTOP}/health`).catch(() => null)
+  isDesktopUp = response?.ok === true
+
+  return isDesktopUp
+}
+
+async function desktopHelp($: EngineInterface): Promise<string> {
+  if (await checkDesktop($)) {
+    await tellDesktop($, emotionOf(lastMood, await $.clock.now()), 'I am connected to Claude! 🐒')
+
+    return '🐒 Momo Desktop is running and connected. Momo will react on your screen as you work.'
+  }
+
+  return [
+    '🐒 Momo Desktop lets Momo roam your whole screen. Start it in a terminal (the first run downloads Electron):',
+    `   cd "${$.plugin.root}/desktop" && npm install && npm start`,
+    'Then run /momo desktop again to connect.',
+  ].join('\n')
 }
 
 // The animation runs many times a second, so it reads this copy of the mood rather than the state.
@@ -49,6 +92,9 @@ const refreshStatus = async ($: EngineInterface) => {
   lastMood = await read($, moodAtom)
   const emotion = emotionOf(lastMood, await $.clock.now())
   $.ui.status(`🐒 ${EMOJI[emotion]} ${emotion}`)
+  if (isDesktopUp && emotion !== toldEmotion) {
+    await tellDesktop($, emotion)
+  }
 }
 
 const drawStage = (emotion: Emotion): string => encodeCells(paint(actor, emotion, stage), stage)
@@ -89,12 +135,15 @@ export const register: Register = on => {
     await $.command.register({
       name: 'momo',
       description: 'Talk to Momo, your monkey buddy: changes, recap, pet, quiet, loud',
-      argumentHint: '[changes|recap|pet|quiet|loud]',
+      argumentHint: '[changes|recap|pet|desktop|quiet|loud]',
     })
     const now = await $.clock.now()
     await update($, moodAtom, mood => (mood.lastEventAt === 0 ? initialMood(now) : mood))
     $.clock.every(ANIMATION_MS, () => void animate($).catch(() => undefined))
-    void $.ui.open({ id: PANE, title: 'Momo 🐒' })
+    void $.ui.open({ id: PANE, title: 'Momo 🐒' }).then(({ isPlaced }) => {
+      isPaneShown = isPlaced
+    })
+    await checkDesktop($)
     await refreshStatus($)
 
     return next(e)
@@ -145,6 +194,9 @@ export const register: Register = on => {
     if (e.agentId !== undefined) {
       return next(e)
     }
+    if (!isDesktopUp) {
+      await checkDesktop($)
+    }
     const { current } = await read($, ledgerAtom)
     const isTrouble = hadTrouble(current)
     const lines = describeTurn(current)
@@ -164,7 +216,13 @@ export const register: Register = on => {
 
   on('command.run', { command: 'momo' }, async ($, e) => {
     const [action = ''] = e.args.trim().toLowerCase().split(/\s+/)
-    void $.ui.open({ id: PANE, title: 'Momo 🐒', focus: true })
+    void $.ui.open({ id: PANE, title: 'Momo 🐒', focus: true }).then(({ isPlaced }) => {
+      isPaneShown = isPlaced
+    })
+
+    if (action === 'desktop') {
+      return { text: await desktopHelp($) }
+    }
 
     if (action === 'changes') {
       const { last, current } = await read($, ledgerAtom)
@@ -200,6 +258,7 @@ export const register: Register = on => {
         '/momo changes  what changed in the last turn',
         '/momo recap    the whole session so far',
         '/momo pet      make Momo happy',
+        '/momo desktop  let Momo roam your whole screen',
         '/momo quiet    no more toasts (/momo loud to undo)',
       ].join('\n'),
     }
@@ -220,8 +279,7 @@ export const register: Register = on => {
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    const isWide = (e.viewport?.columns ?? 0) >= PANE_MIN_COLUMNS
-    if (isWide || e.props.hasSurvey) {
+    if (isPaneShown || e.props.hasSurvey) {
       return next(e)
     }
     const mood = await read($, moodAtom)
