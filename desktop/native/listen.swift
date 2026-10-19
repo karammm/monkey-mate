@@ -70,6 +70,8 @@ final class Ears {
         let current = session
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
+        // Without a hint the recognizer tends to hear "Momo" as "mama".
+        request.contextualStrings = ["Momo", "Hey Momo", "Hi Momo", "Okay Momo"]
         if recognizer.supportsOnDeviceRecognition {
             request.requiresOnDeviceRecognition = true
         }

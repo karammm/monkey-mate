@@ -715,6 +715,15 @@ window.monkeyMate.onHearing(event => {
   if (event.wake) {
     stopSpeaking()
     state.listening = { text: event.partial ?? '' }
+    // A happy squeak the moment he hears his name.
+    if (!settings.muted) {
+      audio ??= new AudioContext()
+      chirp()
+    }
+  } else if (event.prompt) {
+    state.listening = { text: '' }
+    say1('Yes? 🐒', 2500)
+    speak('Yes?')
   } else if (typeof event.partial === 'string') {
     state.listening = { text: event.partial }
   } else if (typeof event.request === 'string') {
@@ -737,7 +746,7 @@ window.monkeyMate.onHearing(event => {
 function answer(request) {
   const said = request.toLowerCase()
   const is = pattern => pattern.test(said)
-  if (!said) return reply('Yes? 🐒', 2500)
+  if (!said) return say1('Call me any time 🐒', 2500)
   if (is(/\b(unmute|talk again|speak again|you can talk)\b/)) {
     setMuted(false)
     return reply('Yay, I can talk again! 🗣️', 2200)

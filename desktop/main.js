@@ -188,9 +188,13 @@ let listenForName = false
 let isSpeaking = false
 // One request being heard: { request, since, lastChange, pushToTalk } or null.
 let turn = null
+// For the status check: the last words heard and the last problem, if any.
+let lastHeard = ''
+let lastEarError = null
 
-// "Momo", and how speech recognition tends to spell it.
-const NAME = /\b(?:momo|mo mo|moe moe|mo-mo|momoe|mohmo)\b/gi
+// "Momo", and how speech recognition tends to spell it. "Mama" and friends count only after a greeting
+// ("hey mama"), so ordinary talk about someone's mum does not wake him.
+const NAME = /\b(?:momo|mo mo|moe moe|mo-mo|momoe|mohmo|mumu|moomoo)\b|\b(?:hey|hi|hello|okay|ok|yo)[\s,]+(?:mama|momma|mommy|moma|mamma|mom|mo)\b/gi
 
 /** The words after the last "Momo" in what was heard, or null when his name was not said. */
 function afterName(text) {
@@ -215,8 +219,12 @@ function startEars() {
       } catch {}
       if (!event) continue
       if (typeof event.listening === 'boolean') earsOn = event.listening
-      if (typeof event.heard === 'string') onHeard(event.heard)
+      if (typeof event.heard === 'string') {
+        lastHeard = event.heard
+        onHeard(event.heard)
+      }
       if (event.error) {
+        lastEarError = event.error
         turn = null
         win?.webContents.send('hearing', { error: event.error })
       }
@@ -237,7 +245,8 @@ function onHeard(text) {
   if (isSpeaking) return
   const now = Date.now()
   if (turn) {
-    const request = turn.pushToTalk ? text.trim() : (afterName(text) ?? turn.request)
+    // After push-to-talk, or once Momo has said "Yes?", everything heard is the request.
+    const request = turn.pushToTalk || turn.takeAll ? text.trim() : (afterName(text) ?? turn.request)
     if (request !== turn.request) {
       turn.request = request
       turn.lastChange = now
@@ -263,9 +272,17 @@ function finishTurn() {
 }
 
 setInterval(() => {
-  if (!turn) return
+  if (!turn || isSpeaking) return
   const quiet = Date.now() - turn.lastChange
-  if (quiet > (turn.request ? 1600 : 6000) || Date.now() - turn.since > 20000) finishTurn()
+  // Just his name, then a pause: he says "Yes?" and listens for what comes next.
+  if (!turn.request && !turn.pushToTalk && !turn.prompted && quiet > 1500) {
+    turn.prompted = true
+    turn.takeAll = true
+    turn.lastChange = Date.now()
+    win?.webContents.send('hearing', { prompt: true })
+    return
+  }
+  if (quiet > (turn.request ? 1600 : 6000) || Date.now() - turn.since > 25000) finishTurn()
 }, 250)
 
 function toggleListening() {
@@ -286,7 +303,13 @@ ipcMain.on('listen-for-name', (_event, on) => {
 // While Momo talks his ears ignore it; afterwards they forget what they heard (his own voice).
 ipcMain.on('speaking', (_event, speaking) => {
   isSpeaking = speaking === true
-  if (!isSpeaking && earsOn) setTimeout(() => ear('reset'), 250)
+  if (!isSpeaking && earsOn) {
+    setTimeout(() => {
+      ear('reset')
+      // Waiting for your answer after his "Yes?": the wait starts when he stops talking.
+      if (turn) turn.lastChange = Date.now()
+    }, 250)
+  }
 })
 // Keeps the menu-bar "Mute Momo" tick in step with mutes from his click menu or "Momo, mute".
 ipcMain.on('muted', (_event, muted) => {
@@ -492,7 +515,7 @@ function startServer() {
     if (request.method === 'GET' && request.url === '/status') {
       win?.webContents
         .executeJavaScript('JSON.stringify({ x: Math.round(momo.x), y: Math.round(momo.y), mode: momo.mode, emotion: emotion(), floor: state.floor, isUserBusy: state.isUserBusy, hands: currentGesture(), isTyping: state.isTyping })')
-        .then(json => response.end(json))
+        .then(json => response.end(JSON.stringify({ ...JSON.parse(json), ears: { on: earsOn, listenForName, isSpeaking, lastHeard, lastEarError, turn } })))
         .catch(() => response.end('{}'))
       return
     }
