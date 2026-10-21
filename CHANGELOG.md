@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.0
+
+- Ask Momo anything: questions are answered by Claude Code's model from a live computer and session snapshot; tasks go to the prompt box
+- Momo hears his name even when speech recognition writes it as "hey mama", and answers "Yes?" when you pause after it
+- `npm run remove-momo`: uninstall Momo Desktop, his data and permissions, and the plugin in one step
+
 ## 0.5.0
 
 - Say "Momo" and talk to him (macOS): he answers out loud, and only then; other requests go into Claude Code's prompt box

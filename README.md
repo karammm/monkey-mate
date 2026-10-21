@@ -134,6 +134,9 @@ npm start            # Windows and Linux
 - His voice is a natural AI voice (Kokoro, running on your computer) raised to a small boy's pitch, with little
   monkey squeaks and "ooh ooh"s. The voice model (about 90 MB) downloads once, the first time he talks. Pick
   Puck, Liam, Echo or Michael under Voice in the 🐒 menu-bar menu.
+- **Ask him anything.** Questions go to Claude Code's quick model together with a live snapshot (CPU, memory,
+  battery, disk, what Claude is doing, the last turn), so "Momo, what's my CPU status?" or "Momo, what did
+  Claude just change?" get a real, short answer. Tasks ("Momo, add a login page") go into the prompt box.
 - Listening for his name keeps the microphone on (macOS shows its orange dot). Speech is turned into text by
   Apple's recognizer, on your Mac whenever it supports that, and he ignores everything until he hears "Momo".
   Turn it off in his menu and use push-to-talk instead: **⌥M** or 🎤 Talk to Momo (he answers in his bubble).
@@ -185,6 +188,18 @@ stores locally. Nothing is sent over the network and no model calls are made.
 
 - Momo lives inside his pane. Claude Code plugins cannot draw over the conversation itself.
 - The function-hook plugin API is in early access, so a future Claude Code release may need an update here.
+
+## Uninstall
+
+From the `desktop` folder:
+
+```bash
+npm run remove-momo
+```
+
+This quits Momo Desktop and removes Momo.app, his voice model and settings, his helpers and key file, the macOS
+permissions he was given, and the Claude Code plugin. Then restart Claude Code. To remove only the plugin, run
+`/plugin uninstall monkey-mate@monkey-mate` in Claude Code.
 
 ## Contributing
 
